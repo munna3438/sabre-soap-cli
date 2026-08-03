@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -18,67 +17,115 @@ func main() {
 		Password: cfg.SabrePassword,
 		PCC:      cfg.SabrePCC,
 		Domain:   cfg.SabreDomain,
+		IsLive:   cfg.IsLive,
 	}
 
 	fmt.Println(banner())
 
+	li := startLineInput(os.Stdin)
+
 	if cfg.SabreEndpoint == "" || cfg.SabreUsername == "" || cfg.SabrePassword == "" || cfg.SabrePCC == "" {
 		fmt.Println("ERROR: Missing required Sabre configuration in .env file.")
 		fmt.Println("Required: SABRE_ENDPOINT, SABRE_USERNAME, SABRE_PASSWORD, SABRE_PCC")
-		pause()
+		pause(li)
 		os.Exit(1)
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
+	for {
+		in := promptBookingInput(li)
+		fmt.Println()
 
-	in := promptBookingInput(scanner)
-	fmt.Println()
+		flightCommand := buildFlightCommand(in.From, in.To, in.Date)
+		fmt.Printf("Flight command : %s\n", flightCommand)
+		fmt.Println()
 
-	flightCommand := buildFlightCommand(in.From, in.To, in.Date)
-	seatHoldCommand := buildSeatHoldCommand(in.BookingClass)
-	fmt.Printf("Flight command : %s\n", flightCommand)
-	fmt.Printf("Seat hold cmd  : %s\n", seatHoldCommand)
-	fmt.Println()
+		fmt.Print("Creating Sabre session...")
+		session, err := sabre.CreateSession(sabreCfg.Endpoint, sabreCfg.Username, sabreCfg.Password, sabreCfg.PCC, sabreCfg.Domain, sabreCfg.IsLive)
+		if err != nil {
+			fmt.Printf(" FAILED\nERROR: %s\n", err)
+			pause(li)
+			os.Exit(1)
+		}
+		fmt.Println(" OK")
+		fmt.Printf("Session: %s\n", session.ConversationID)
+		fmt.Println()
 
-	fmt.Print("Creating Sabre session...")
-	session, err := sabre.CreateSession(sabreCfg.Endpoint, sabreCfg.Username, sabreCfg.Password, sabreCfg.PCC, sabreCfg.Domain)
-	if err != nil {
-		fmt.Printf(" FAILED\nERROR: %s\n", err)
-		pause()
-		os.Exit(1)
+		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
+		found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
+
+		if !found {
+			restart := postCancelMenu(sabreCfg, session, li)
+			if restart {
+				continue
+			}
+			fmt.Println("Goodbye.")
+			os.Exit(0)
+		}
+
+		seatHoldCommand := buildSeatHoldCommand(foundClass)
+		fmt.Printf("Seat hold cmd  : %s\n", seatHoldCommand)
+
+		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
+		if err != nil {
+			fmt.Printf("ERROR: %s\n", err)
+		} else {
+			printCommandResult("Seat hold command: "+seatHoldCommand, result)
+		}
+
+		fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
+		fmt.Println()
+		interactiveTerminal(sabreCfg, session, li)
+
+		fmt.Print("Closing Sabre session...")
+		sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
+		fmt.Println(" OK")
+		break
 	}
-	fmt.Println(" OK")
-	fmt.Printf("Session: %s\n", session.ConversationID)
-	fmt.Println()
 
-	fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
-	waitForClass(cfg, sabreCfg, in, session, flightCommand)
-
-	result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
-	if err != nil {
-		fmt.Printf("ERROR: %s\n", err)
-	} else {
-		printCommandResult("Seat hold command: "+seatHoldCommand, result)
-	}
-
-	fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
-	fmt.Println()
-	interactiveTerminal(sabreCfg, session, scanner)
-
-	fmt.Print("Closing Sabre session...")
-	sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
-	fmt.Println(" OK")
 	fmt.Println("Goodbye.")
 }
 
-func interactiveTerminal(sabreCfg *sabre.Config, session *sabre.SessionResult, scanner *bufio.Scanner) {
+func postCancelMenu(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput) bool {
+	for {
+		fmt.Println()
+		fmt.Println("Monitoring stopped.")
+		fmt.Println("[1] New search")
+		fmt.Println("[2] Sabre terminal")
+		fmt.Println("[3] Exit")
+		line, ok := li.readLine()
+		if !ok {
+			return false
+		}
+		switch strings.TrimSpace(line) {
+		case "1":
+			fmt.Print("Closing Sabre session...")
+			sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
+			fmt.Println(" OK")
+			return true
+		case "2":
+			fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
+			fmt.Println()
+			interactiveTerminal(sabreCfg, session, li)
+		case "3":
+			fmt.Print("Closing Sabre session...")
+			sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
+			fmt.Println(" OK")
+			return false
+		default:
+			fmt.Println("Invalid choice.")
+		}
+	}
+}
+
+func interactiveTerminal(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput) {
 	for {
 		fmt.Print("sabre> ")
-		if !scanner.Scan() {
+		line, ok := li.readLine()
+		if !ok {
 			break
 		}
 
-		command := strings.TrimSpace(scanner.Text())
+		command := strings.TrimSpace(line)
 		command = strings.ReplaceAll(command, "\\", "¥")
 		if command == "" {
 			continue
@@ -126,7 +173,7 @@ func banner() string {
 `
 }
 
-func pause() {
+func pause(li *lineInput) {
 	fmt.Print("\nPress Enter to exit...")
-	bufio.NewReader(os.Stdin).ReadString('\n')
+	li.readLine()
 }

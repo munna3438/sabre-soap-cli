@@ -78,6 +78,7 @@ func SendCommandWithExistingSession(cfg *Config, ses *SessionResult, command str
 			cfg.Password,
 			cfg.PCC,
 			cfg.Domain,
+			cfg.IsLive,
 		)
 		if err2 != nil {
 			return nil, fmt.Errorf("session expired and retry session creation failed: %w", err2)

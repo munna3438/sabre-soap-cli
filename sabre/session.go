@@ -25,6 +25,29 @@ const (
         <Username>%s</Username>
         <Password>%s</Password>
         <Organization>%s</Organization>
+        <Domain>%s</Domain>		
+      </UsernameToken>
+    </Security>
+  </SOAP-ENV:Header>
+  <SOAP-ENV:Body>
+    <SessionCreateRQ returnContextID="true" Version="1.0.0" xmlns="http://www.opentravel.org/OTA/2002/11"/>
+  </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>`
+
+	sessionCreateXMLLive = `<?xml version="1.0" encoding="UTF-8"?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+  <SOAP-ENV:Header>
+    <MessageHeader xmlns="http://www.ebxml.org/namespaces/messageHeader">
+      <From><PartyId>Agency</PartyId></From>
+      <To><PartyId>Sabre_API</PartyId></To>
+      <ConversationId>%s</ConversationId>
+      <Action>SessionCreateRQ</Action>
+    </MessageHeader>
+    <Security xmlns="http://schemas.xmlsoap.org/ws/2002/12/secext">
+      <UsernameToken>
+        <Username>%s</Username>
+        <Password>%s</Password>
+        <Organization>%s</Organization>
         <Domain>%s</Domain>
 				<ClientId>5B0K-JvBdOta</ClientId>
 				<ClientSecret>M1uty91x</ClientSecret>				
@@ -60,11 +83,16 @@ type SessionResult struct {
 	Token          string
 }
 
-func CreateSession(endpoint, username, password, pcc, domain string) (*SessionResult, error) {
+func CreateSession(endpoint, username, password, pcc, domain string, isLive bool) (*SessionResult, error) {
 	conversationID := fmt.Sprintf("Go-%d", makeTimestamp())
 
+	template := sessionCreateXML
+	if isLive {
+		template = sessionCreateXMLLive
+	}
+
 	xmlBody := fmt.Sprintf(
-		sessionCreateXML,
+		template,
 		conversationID,
 		xmlEscape(username),
 		xmlEscape(password),

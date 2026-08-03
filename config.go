@@ -8,11 +8,12 @@ import (
 )
 
 type Config struct {
-	SabreEndpoint  string
-	SabreUsername  string
-	SabrePassword  string
-	SabrePCC       string
-	SabreDomain    string
+	SabreEndpoint string
+	SabreUsername string
+	SabrePassword string
+	SabrePCC      string
+	SabreDomain   string
+	IsLive        bool
 
 	MysearchURL         string
 	MysearchPollSeconds int
@@ -26,11 +27,12 @@ func LoadConfig() *Config {
 	loadDotEnv()
 
 	return &Config{
-		SabreEndpoint:  getEnv("SABRE_ENDPOINT", ""),
-		SabreUsername:  getEnv("SABRE_USERNAME", ""),
-		SabrePassword:  getEnv("SABRE_PASSWORD", ""),
-		SabrePCC:       getEnv("SABRE_PCC", ""),
-		SabreDomain:    getEnv("SABRE_DOMAIN", "DEFAULT"),
+		SabreEndpoint:       getEnv("SABRE_ENDPOINT", "https://webservices.platform.sabre.com"),
+		SabreUsername:       getEnv("SABRE_USERNAME", "593716"),
+		SabrePassword:       getEnv("SABRE_PASSWORD", "83015s3p"),
+		SabrePCC:            getEnv("SABRE_PCC", "06EL"),
+		SabreDomain:         getEnv("SABRE_DOMAIN", "DEFAULT"),
+		IsLive:              getEnvBool("IS_LIVE", true),
 		MysearchURL:         getEnv("MYSEARCH_API_URL", "http://localhost:8000/api/check-seat"),
 		MysearchPollSeconds: getEnvInt("MYSEARCH_POLL_INTERVAL", 5),
 		SabreRetryMinutes:   getEnvInt("SABRE_RETRY_MINUTES", 20),
@@ -80,6 +82,13 @@ func getEnvInt(key string, fallback int) int {
 		if err == nil && n > 0 {
 			return n
 		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		return strings.EqualFold(strings.TrimSpace(v), "true")
 	}
 	return fallback
 }

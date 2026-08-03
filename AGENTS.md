@@ -17,6 +17,7 @@ A Go (1.21) CLI tool that:
 4. While polling, periodically sends a Sabre flight command via the session (keep-alive so the session doesn't expire).
 5. When the class is found, sends a Sabre seat-hold command (`01<CLASS>1`).
 6. Drops into an interactive Sabre terminal, then closes the session.
+7. While monitoring, typing `q` stops polling and shows a menu: `[1] New search`, `[2] Sabre terminal`, `[3] Exit` (session stays open until research/exit).
 
 Branches: work is done on `dev_munna` (current).
 
@@ -36,14 +37,17 @@ Branches: work is done on `dev_munna` (current).
 
 ## Key Code Details
 - Flight command format: `1<DDMON><FROM><TO>¥BG` (e.g. `120AUGDACBKK¥BG`). Note `¥` is used in place of `\`.
-- Seat hold command: `01<CLASS>1` (e.g. `01B1`).
-- Polling: `fetchAirSearch` calls `callBimanGraphql` (GraphQL POST to `BIMAN_GRAPHQL_URL`, default `https://booking.biman-airlines.com/api/graphql`), with hardcoded headers (`x-sabre-storefront: BGDX`, `application-id`, `conversation-id`).
+- Seat hold command: `01<CLASS>1` (e.g. `01B1`). Built from the **actually-found** class (monitoring can watch multiple classes).
+- Polling: `fetchAirSearch` calls `callBimanGraphql`. Currently reads the sample response from `assets/sabre/get_data_1785580559.json` (the live GraphQL POST to `BIMAN_GRAPHQL_URL` is commented out).
 - Booking-class detection parses `data.bookingAirSearch.originalResponse.unbundledOffers[0][].itineraryPart[0].bookingClass`.
 - Keep-alive interval: `SABRE_POLL_MINUTES` (default 10). Retry re-session: handled automatically when session expired.
 - Session expiry auto-renew: `isSessionInvalid()` in `sabre/command.go` checks for session/token keywords, then recreates the session and re-sends the command; sets `SessionRetried = true`.
+- Stdin handling: channel-based `lineInput` (owning goroutine scans `os.Stdin`); `promptBookingInput` / `interactiveTerminal` / `postCancelMenu` / `listenForCancel` all read via `readLine()`. Typing `q` while monitoring cancels polling; `postCancelMenu` offers `[1] New search` (new session), `[2] Sabre terminal` (reuses open session), `[3] Exit`.
+- Booking class input: comma-separated (e.g. `B,C,D`), stored in `BookingInput.BookingClasses` via `splitClasses`. `bookingClassFound` returns the matched class; `waitForClass` returns `(found, foundClass)` and the seat-hold command is built from `foundClass`.
 
 ## Config (.env keys)
 - `SABRE_ENDPOINT`, `SABRE_USERNAME`, `SABRE_PASSWORD`, `SABRE_PCC` (required), `SABRE_DOMAIN` (default `DEFAULT`)
+- `IS_LIVE` (default false): when `true`, `CreateSession` sends live `ClientId`/`ClientSecret` in the SessionCreateRQ XML
 - `BIMAN_GRAPHQL_URL` (default `https://booking.biman-airlines.com/api/graphql`)
 - `SABRE_POLL_MINUTES` (default 10)
 - (Defined but unused/legacy: `MYSEARCH_API_URL`, `MYSEARCH_POLL_INTERVAL`, `SABRE_RETRY_MINUTES`)
@@ -67,8 +71,10 @@ gofmt -w .
 - Branch: `dev_munna`
 - Last commit: `fb7986d` "sabre soap api connection and terminal command exicution with session code"
 - In progress (uncommitted working-tree changes):
-  - `monitor.go`, `sabre/session.go`, `assets/sabre/get_data_1785580559.json` modified
-  - `main.go`, `config.go`, `monitor.go`, `monitor_test.go`, `assets/...`, `sabre/session.go` are staged
+  - Added `IS_LIVE` env toggle for live ClientId/ClientSecret in SessionCreateRQ (`config.go`, `sabre/config.go`, `sabre/session.go`, `main.go`, `sabre/command.go`)
+  - Added `q`-to-stop monitoring + post-cancel menu `[1] New search / [2] Sabre terminal / [3] Exit` (`main.go`, `monitor.go`, `monitor_test.go`)
+  - Added comma-separated multi-class monitoring (`B,C,D`); seat hold uses the actually-found class (`monitor.go`, `main.go`, `monitor_test.go`)
+  - `assets/sabre/get_data_1785580559.json` modified
 - Next planned step: (fill in when decided — e.g. commit staged work, add error handling, new features)
 
 ## Completed Work

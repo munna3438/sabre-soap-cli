@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"strings"
 	"testing"
 )
@@ -23,14 +22,19 @@ func TestBookingClassFound(t *testing.T) {
 		},
 	}
 
-	in := &BookingInput{BookingClass: "B"}
-	if !in.bookingClassFound(response) {
+	in := &BookingInput{BookingClasses: []string{"B", "L"}}
+	if in.bookingClassFound(response) != "B" {
 		t.Error("expected class B to be found")
 	}
 
-	in.BookingClass = "Z"
-	if in.bookingClassFound(response) {
+	in.BookingClasses = []string{"Z"}
+	if in.bookingClassFound(response) != "" {
 		t.Error("expected class Z to NOT be found")
+	}
+
+	in.BookingClasses = []string{"L", "Z"}
+	if in.bookingClassFound(response) != "L" {
+		t.Error("expected class L to be found")
 	}
 }
 
@@ -48,9 +52,18 @@ func TestBuildCommands(t *testing.T) {
 }
 
 func TestPromptInput(t *testing.T) {
-	scanner := bufio.NewScanner(strings.NewReader("dac\nbkk\nb\n2026-08-20\n"))
-	in := promptBookingInput(scanner)
-	if in.From != "DAC" || in.To != "BKK" || in.BookingClass != "B" || in.Date != "2026-08-20" {
+	li := startLineInput(strings.NewReader("dac\nbkk\nb,c,d\n2026-08-20\n"))
+	in := promptBookingInput(li)
+	if in.From != "DAC" || in.To != "BKK" || in.BookingClass != "B,C,D" || in.Date != "2026-08-20" {
 		t.Errorf("unexpected input parsed: %+v", in)
+	}
+	wantClasses := []string{"B", "C", "D"}
+	if len(in.BookingClasses) != len(wantClasses) {
+		t.Fatalf("BookingClasses = %v, want %v", in.BookingClasses, wantClasses)
+	}
+	for i := range wantClasses {
+		if in.BookingClasses[i] != wantClasses[i] {
+			t.Errorf("BookingClasses = %v, want %v", in.BookingClasses, wantClasses)
+		}
 	}
 }
