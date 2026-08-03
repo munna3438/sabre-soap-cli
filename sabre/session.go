@@ -27,7 +27,7 @@ const (
         <Organization>%s</Organization>
         <Domain>%s</Domain>
 				<ClientId>5B0K-JvBdOta</ClientId>
-				<ClientSecret>M1uty91x</ClientSecret>
+				<ClientSecret>M1uty91x</ClientSecret>				
       </UsernameToken>
     </Security>
   </SOAP-ENV:Header>

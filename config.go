@@ -17,6 +17,9 @@ type Config struct {
 	MysearchURL         string
 	MysearchPollSeconds int
 	SabreRetryMinutes   int
+	SabrePollMinutes    int
+
+	BimanGraphqlURL string
 }
 
 func LoadConfig() *Config {
@@ -28,9 +31,12 @@ func LoadConfig() *Config {
 		SabrePassword:  getEnv("SABRE_PASSWORD", ""),
 		SabrePCC:       getEnv("SABRE_PCC", ""),
 		SabreDomain:    getEnv("SABRE_DOMAIN", "DEFAULT"),
-		MysearchURL:    getEnv("MYSEARCH_API_URL", "http://localhost:8000/api/check-seat"),
+		MysearchURL:         getEnv("MYSEARCH_API_URL", "http://localhost:8000/api/check-seat"),
 		MysearchPollSeconds: getEnvInt("MYSEARCH_POLL_INTERVAL", 5),
 		SabreRetryMinutes:   getEnvInt("SABRE_RETRY_MINUTES", 20),
+		SabrePollMinutes:    getEnvInt("SABRE_POLL_MINUTES", 10),
+
+		BimanGraphqlURL: getEnv("BIMAN_GRAPHQL_URL", "https://booking.biman-airlines.com/api/graphql"),
 	}
 }
 
