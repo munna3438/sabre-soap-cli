@@ -213,7 +213,9 @@ func seatHoldStatus(response string) string {
 
 const maxSeatHoldAttempts = 6
 
-func trySeatHold(sabreCfg *sabre.Config, session *sabre.SessionResult, seatHoldCommand string) bool {
+func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
+	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass)
+	ucNotified := false
 	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
 		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
 		if err != nil {
@@ -222,10 +224,19 @@ func trySeatHold(sabreCfg *sabre.Config, session *sabre.SessionResult, seatHoldC
 		}
 		switch seatHoldStatus(result.Response) {
 		case "SS":
-			fmt.Printf("Seat held successfully (attempt %d).\n", attempt)
+			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
+			if err := sendTelegramMessage(cfg, successMessage); err != nil {
+				fmt.Printf("[telegram] ERROR: %s\n", err)
+			}
 			return true
 		case "UC":
 			fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
+			if !ucNotified {
+				ucNotified = true
+				if err := sendTelegramMessage(cfg, ucMessage); err != nil {
+					fmt.Printf("[telegram] ERROR: %s\n", err)
+				}
+			}
 		default:
 			fmt.Printf("[Seat hold #%d] Unknown seat-hold response. Retrying...\n", attempt)
 		}

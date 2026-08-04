@@ -66,7 +66,7 @@ func main() {
 
 			seatHoldCommand := buildSeatHoldCommand(foundClass)
 
-			if trySeatHold(sabreCfg, session, seatHoldCommand) {
+			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
 				held = true
 				break
 			}
@@ -78,8 +78,6 @@ func main() {
 			continue
 		}
 
-		fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
-		fmt.Println()
 		interactiveTerminal(sabreCfg, session, li)
 
 		fmt.Print("Closing Sabre session...")

@@ -73,6 +73,26 @@ func TestSeatHoldStatus(t *testing.T) {
 	}
 }
 
+func TestBuildSeatHoldMessages(t *testing.T) {
+	in := &BookingInput{
+		From:           "DAC",
+		To:             "BKK",
+		BookingClasses: []string{"B", "C", "D"},
+		Date:           "2026-08-20",
+	}
+	ucMsg, okMsg := buildSeatHoldMessages(in, "B")
+
+	wantUC := "From: DAC\nTo: BKK\nDate: 2026-08-20\nBooking Class: B,C,D"
+	if ucMsg != wantUC {
+		t.Errorf("uc message = %q, want %q", ucMsg, wantUC)
+	}
+
+	wantOK := "From: DAC\nTo: BKK\nDate: 2026-08-20\nBooking Class: B"
+	if okMsg != wantOK {
+		t.Errorf("success message = %q, want %q", okMsg, wantOK)
+	}
+}
+
 func TestPromptInput(t *testing.T) {
 	li := startLineInput(strings.NewReader("dac\nbkk\nb,c,d\n2026-08-20\n"))
 	in := promptBookingInput(li)

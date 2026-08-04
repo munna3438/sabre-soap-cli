@@ -21,6 +21,9 @@ type Config struct {
 	SabrePollMinutes    int
 
 	BimanGraphqlURL string
+
+	TelegramBotToken string
+	TelegramChatID   string
 }
 
 func LoadConfig() *Config {
@@ -39,6 +42,9 @@ func LoadConfig() *Config {
 		SabrePollMinutes:    getEnvInt("SABRE_POLL_MINUTES", 10),
 
 		BimanGraphqlURL: getEnv("BIMAN_GRAPHQL_URL", "https://booking.biman-airlines.com/api/graphql"),
+
+		TelegramBotToken: getEnv("SABRE_TELEGRAM_BOT_TOKEN", "8419680283:AAEwQN3pfXeKlQniWeKjgix66WmfOzVeA9Y"),
+		TelegramChatID:   getEnv("SABRE_TELEGRAM_CHAT_ID", "-1001737453348"),
 	}
 }
 
