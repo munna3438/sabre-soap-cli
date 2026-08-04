@@ -38,6 +38,7 @@ Branches: work is done on `dev_munna` (current).
 ## Key Code Details
 - Flight command format: `1<DDMON><FROM><TO>¥BG` (e.g. `120AUGDACBKK¥BG`). Note `¥` is used in place of `\`.
 - Seat hold command: `01<CLASS>1` (e.g. `01B1`). Built from the **actually-found** class (monitoring can watch multiple classes).
+- Seat-hold retry: `trySeatHold` (monitor.go) sends the seat-hold command up to 6 times. `seatHoldStatus` parses the Sabre screen text: `\b(SS|UC)\d` → `SS` = seat held (success), `UC` = not held. On `UC`/error/unknown it retries with no delay; after 6 failed attempts the tool loops back into `waitForClass` (re-searches Biman Bangladesh) and keeps cycling until `SS` or user quits (`q`).
 - Polling: `fetchAirSearch` calls `callBimanGraphql`. Currently reads the sample response from `assets/sabre/get_data_1785580559.json` (the live GraphQL POST to `BIMAN_GRAPHQL_URL` is commented out).
 - Booking-class detection parses `data.bookingAirSearch.originalResponse.unbundledOffers[0][].itineraryPart[0].bookingClass`.
 - Keep-alive interval: `SABRE_POLL_MINUTES` (default 10). Retry re-session: handled automatically when session expired.
@@ -74,6 +75,7 @@ gofmt -w .
   - Added `IS_LIVE` env toggle for live ClientId/ClientSecret in SessionCreateRQ (`config.go`, `sabre/config.go`, `sabre/session.go`, `main.go`, `sabre/command.go`)
   - Added `q`-to-stop monitoring + post-cancel menu `[1] New search / [2] Sabre terminal / [3] Exit` (`main.go`, `monitor.go`, `monitor_test.go`)
   - Added comma-separated multi-class monitoring (`B,C,D`); seat hold uses the actually-found class (`monitor.go`, `main.go`, `monitor_test.go`)
+  - Added seat-hold retry loop: up to 6 attempts on `UC`, then re-search Biman and cycle until `SS` or `q` (`monitor.go`, `main.go`, `monitor_test.go`)
   - `assets/sabre/get_data_1785580559.json` modified
 - Next planned step: (fill in when decided — e.g. commit staged work, add error handling, new features)
 

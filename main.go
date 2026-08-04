@@ -51,25 +51,32 @@ func main() {
 		fmt.Println()
 
 		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
-		found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
 
-		if !found {
-			restart := postCancelMenu(sabreCfg, session, li)
-			if restart {
-				continue
+		held := false
+		for {
+			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
+			if !found {
+				restart := postCancelMenu(sabreCfg, session, li)
+				if restart {
+					break
+				}
+				fmt.Println("Goodbye.")
+				os.Exit(0)
 			}
-			fmt.Println("Goodbye.")
-			os.Exit(0)
+
+			seatHoldCommand := buildSeatHoldCommand(foundClass)
+			fmt.Printf("Seat hold cmd  : %s\n", seatHoldCommand)
+
+			if trySeatHold(sabreCfg, session, seatHoldCommand) {
+				held = true
+				break
+			}
+
+			fmt.Println("\nSeat NOT held after 6 attempts (UC). Re-searching in Biman Bangladesh...")
 		}
 
-		seatHoldCommand := buildSeatHoldCommand(foundClass)
-		fmt.Printf("Seat hold cmd  : %s\n", seatHoldCommand)
-
-		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
-		if err != nil {
-			fmt.Printf("ERROR: %s\n", err)
-		} else {
-			printCommandResult("Seat hold command: "+seatHoldCommand, result)
+		if !held {
+			continue
 		}
 
 		fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")

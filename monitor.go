@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	// "os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -198,6 +199,39 @@ func buildFlightCommand(from, to, date string) string {
 
 func buildSeatHoldCommand(bookingClass string) string {
 	return "01" + strings.ToUpper(bookingClass) + "1"
+}
+
+var seatHoldStatusRe = regexp.MustCompile(`\b(SS|UC)\d`)
+
+func seatHoldStatus(response string) string {
+	m := seatHoldStatusRe.FindStringSubmatch(response)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
+const maxSeatHoldAttempts = 6
+
+func trySeatHold(sabreCfg *sabre.Config, session *sabre.SessionResult, seatHoldCommand string) bool {
+	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
+		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
+		if err != nil {
+			fmt.Printf("\n[Seat hold #%d] ERROR: %s\n", attempt, err)
+			continue
+		}
+		printCommandResult(seatHoldCommand, result)
+		switch seatHoldStatus(result.Response) {
+		case "SS":
+			fmt.Printf("Seat held successfully (attempt %d).\n", attempt)
+			return true
+		case "UC":
+			fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
+		default:
+			fmt.Printf("[Seat hold #%d] Unknown seat-hold response. Retrying...\n", attempt)
+		}
+	}
+	return false
 }
 
 func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, string) {
