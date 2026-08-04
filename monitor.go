@@ -220,7 +220,6 @@ func trySeatHold(sabreCfg *sabre.Config, session *sabre.SessionResult, seatHoldC
 			fmt.Printf("\n[Seat hold #%d] ERROR: %s\n", attempt, err)
 			continue
 		}
-		printCommandResult(seatHoldCommand, result)
 		switch seatHoldStatus(result.Response) {
 		case "SS":
 			fmt.Printf("Seat held successfully (attempt %d).\n", attempt)
@@ -266,13 +265,11 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 			continue
 		}
 		if fc := in.bookingClassFound(resp); fc != "" {
-			fmt.Printf("\r[Request #%d] BOOKING CLASS %s IS AVAILABLE.\n", count, fc)
 			found = true
 			foundClass = fc
 			break
 		}
 		fmt.Printf("\r[Request #%d] re-checking...", count)
-		time.Sleep(1 * time.Second)
 	}
 	fmt.Println()
 
