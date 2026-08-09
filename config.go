@@ -39,7 +39,7 @@ func LoadConfig() *Config {
 		MysearchURL:         getEnv("MYSEARCH_API_URL", "http://localhost:8000/api/check-seat"),
 		MysearchPollSeconds: getEnvInt("MYSEARCH_POLL_INTERVAL", 5),
 		SabreRetryMinutes:   getEnvInt("SABRE_RETRY_MINUTES", 20),
-		SabrePollMinutes:    getEnvInt("SABRE_POLL_MINUTES", 10),
+		SabrePollMinutes:    getEnvInt("SABRE_POLL_MINUTES", 15),
 
 		BimanGraphqlURL: getEnv("BIMAN_GRAPHQL_URL", "https://booking.biman-airlines.com/api/graphql"),
 

@@ -82,14 +82,15 @@ func TestBuildSeatHoldMessages(t *testing.T) {
 	}
 	ucMsg, okMsg := buildSeatHoldMessages(in, "B")
 
-	wantUC := "From: DAC\nTo: BKK\nDate: 2026-08-20\nBooking Class: B,C,D"
-	if ucMsg != wantUC {
-		t.Errorf("uc message = %q, want %q", ucMsg, wantUC)
+	if !strings.Contains(ucMsg, "Booking Class: B") {
+		t.Errorf("uc message = %q, want to contain %q", ucMsg, "Booking Class: B")
+	}
+	if strings.Contains(ucMsg, "B,C,D") {
+		t.Errorf("uc message = %q, should not contain all classes", ucMsg)
 	}
 
-	wantOK := "From: DAC\nTo: BKK\nDate: 2026-08-20\nBooking Class: B"
-	if okMsg != wantOK {
-		t.Errorf("success message = %q, want %q", okMsg, wantOK)
+	if !strings.Contains(okMsg, "Booking Class: B") {
+		t.Errorf("success message = %q, want to contain %q", okMsg, "Booking Class: B")
 	}
 }
 

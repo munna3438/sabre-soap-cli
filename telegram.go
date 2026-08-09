@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 )
 
 func sendTelegramMessage(cfg *Config, text string) error {
@@ -32,6 +31,6 @@ func sendTelegramMessage(cfg *Config, text string) error {
 
 func buildSeatHoldMessages(in *BookingInput, foundClass string) (ucMessage, successMessage string) {
 	successMessage = fmt.Sprintf("✅ Successfully Seat Blocked. \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s", in.From, in.To, in.Date, foundClass)
-	ucMessage = fmt.Sprintf("❌ Seat Not Blocked (UC) \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s", in.From, in.To, in.Date, strings.Join(in.BookingClasses, ","))
+	ucMessage = fmt.Sprintf("❌ Seat Not Blocked (UC) \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s", in.From, in.To, in.Date, foundClass)
 	return ucMessage, successMessage
 }

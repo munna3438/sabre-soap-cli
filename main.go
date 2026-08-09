@@ -71,7 +71,10 @@ func main() {
 				break
 			}
 
-			fmt.Println("\nSeat NOT held after 6 attempts (UC). Re-searching in Biman Bangladesh...")
+			fmt.Println("\nSeat NOT held after 2 attempts (UC). Clearing Sabre screen and re-searching Biman Bangladesh...")
+			if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, "I"); err != nil {
+				fmt.Printf("[clear] ERROR sending 'I': %s\n", err)
+			}
 		}
 
 		if !held {

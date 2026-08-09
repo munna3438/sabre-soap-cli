@@ -211,7 +211,7 @@ func seatHoldStatus(response string) string {
 	return ""
 }
 
-const maxSeatHoldAttempts = 6
+const maxSeatHoldAttempts = 2
 
 func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
 	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass)

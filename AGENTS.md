@@ -38,7 +38,7 @@ Branches: work is done on `dev_munna` (current).
 ## Key Code Details
 - Flight command format: `1<DDMON><FROM><TO>¥BG` (e.g. `120AUGDACBKK¥BG`). Note `¥` is used in place of `\`.
 - Seat hold command: `01<CLASS>1` (e.g. `01B1`). Built from the **actually-found** class (monitoring can watch multiple classes).
-- Seat-hold retry: `trySeatHold` (monitor.go) sends the seat-hold command up to 6 times. `seatHoldStatus` parses the Sabre screen text: `\b(SS|UC)\d` → `SS` = seat held (success), `UC` = not held. On `UC`/error/unknown it retries with no delay; after 6 failed attempts the tool loops back into `waitForClass` (re-searches Biman Bangladesh) and keeps cycling until `SS` or user quits (`q`).
+- Seat-hold retry: `trySeatHold` (monitor.go) sends the seat-hold command up to 2 times. `seatHoldStatus` parses the Sabre screen text: `\b(SS|UC)\d` → `SS` = seat held (success), `UC` = not held. On `UC`/error/unknown it retries with no delay; after 2 failed attempts, main.go sends the Sabre `I` command (clear screen) then loops back into `waitForClass` (re-searches Biman Bangladesh) and keeps cycling until `SS` or user quits (`q`).
 - Telegram: `sendTelegramMessage` (telegram.go) POSTs to `https://api.telegram.org/bot<token>/sendMessage` (parse_mode HTML). `buildSeatHoldMessages` builds two multi-line messages (`From:`/`To:`/`Date:`/`Booking Class:`) from `BookingInput` + found class: success = blocked class only, UC = all input classes comma-joined (`B,C,D`). On `SS` the success message is sent once; on the **first** `UC` of a seat-hold round the UC message is sent once (not per retry). Sending is skipped when `SABRE_TELEGRAM_BOT_TOKEN`/`SABRE_TELEGRAM_CHAT_ID` are empty.
 - Polling: `fetchAirSearch` calls `callBimanGraphql` (live GraphQL POST to `BIMAN_GRAPHQL_URL`; the file-read from `assets/sabre/get_data_1785580559.json` is commented out). Poll loop has NO sleep and NO per-check output (removed for speed); on class match it breaks immediately and runs the seat-hold. The GraphQL query cannot be shrunk by selecting subfields of `originalResponse` (schema returns 400 — it is opaque/scalar).
 - Booking-class detection parses `data.bookingAirSearch.originalResponse.unbundledOffers[0][].itineraryPart[0].bookingClass`.
@@ -77,7 +77,8 @@ gofmt -w .
   - Added `IS_LIVE` env toggle for live ClientId/ClientSecret in SessionCreateRQ (`config.go`, `sabre/config.go`, `sabre/session.go`, `main.go`, `sabre/command.go`)
   - Added `q`-to-stop monitoring + post-cancel menu `[1] New search / [2] Sabre terminal / [3] Exit` (`main.go`, `monitor.go`, `monitor_test.go`)
   - Added comma-separated multi-class monitoring (`B,C,D`); seat hold uses the actually-found class (`monitor.go`, `main.go`, `monitor_test.go`)
-  - Added seat-hold retry loop: up to 6 attempts on `UC`, then re-search Biman and cycle until `SS` or `q` (`monitor.go`, `main.go`, `monitor_test.go`)
+  - Added seat-hold retry loop: up to 2 attempts on `UC`, then re-search Biman and cycle until `SS` or `q` (`monitor.go`, `main.go`, `monitor_test.go`)
+  - Before re-search after failed seat hold, main.go sends the Sabre `I` command to clear the screen (`main.go`)
   - `assets/sabre/get_data_1785580559.json` modified
 - Next planned step: (fill in when decided — e.g. commit staged work, add error handling, new features)
 
