@@ -64,7 +64,7 @@ func main() {
 				os.Exit(0)
 			}
 
-			seatHoldCommand := buildSeatHoldCommand(foundClass)
+			seatHoldCommand := buildSeatHoldCommand(foundClass, in.Row)
 
 			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
 				held = true

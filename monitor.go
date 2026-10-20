@@ -22,6 +22,7 @@ type BookingInput struct {
 	To             string
 	BookingClass   string
 	BookingClasses []string
+	Row            string
 	Date           string
 }
 
@@ -67,7 +68,8 @@ func promptBookingInput(li *lineInput) *BookingInput {
 	in.From = promptValue(li, "1. From (e.g. DAC)", "")
 	in.To = promptValue(li, "2. To (e.g. BKK)", "")
 	in.BookingClass = promptValue(li, "3. Booking class (e.g. B or B,C,D)", "")
-	in.Date = promptValue(li, "4. Date (YYYY-MM-DD)", "")
+	in.Row = promptValue(li, "4. Row (e.g 1)", "")
+	in.Date = promptValue(li, "5. Date (YYYY-MM-DD)", "")
 	in.From = strings.ToUpper(in.From)
 	in.To = strings.ToUpper(in.To)
 	in.BookingClass = strings.ToUpper(in.BookingClass)
@@ -197,8 +199,8 @@ func buildFlightCommand(from, to, date string) string {
 	return strings.ToUpper(fmt.Sprintf("1%s%s%s¥BG", dayMonth, from, to))
 }
 
-func buildSeatHoldCommand(bookingClass string) string {
-	return "01" + strings.ToUpper(bookingClass) + "1"
+func buildSeatHoldCommand(bookingClass string, row string) string {
+	return "01" + strings.ToUpper(bookingClass) + row
 }
 
 var seatHoldStatusRe = regexp.MustCompile(`\b(SS|UC)\d`)
@@ -211,10 +213,20 @@ func seatHoldStatus(response string) string {
 	return ""
 }
 
+// Get flight number
+func ExtractFlightNumber(response string) string {
+	re := regexp.MustCompile(`\b\d+\s+[A-Z]{2}\s+([A-Z0-9]+)\b`)
+	m := re.FindStringSubmatch(response)
+	if len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
 const maxSeatHoldAttempts = 2
 
 func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
-	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass)
+	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass, "")
 	ucNotified := false
 	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
 		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
@@ -222,9 +234,26 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 			fmt.Printf("\n[Seat hold #%d] ERROR: %s\n", attempt, err)
 			continue
 		}
-		switch seatHoldStatus(result.Response) {
+
+		respText := ""
+		if result != nil {
+			respText = result.Response
+		}
+		flightNum := ExtractFlightNumber(respText)
+		if ucMessage == "" && successMessage == "" {
+			ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+		} else {
+			if flightNum != "" {
+				ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+			}
+		}
+
+		switch seatHoldStatus(respText) {
 		case "SS":
 			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
+			if flightNum != "" {
+				_, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+			}
 			if err := sendTelegramMessage(cfg, successMessage); err != nil {
 				fmt.Printf("[telegram] ERROR: %s\n", err)
 			}
@@ -233,6 +262,9 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 			fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
 			if !ucNotified {
 				ucNotified = true
+				if flightNum != "" {
+					ucMessage, _ = buildSeatHoldMessages(in, foundClass, flightNum)
+				}
 				if err := sendTelegramMessage(cfg, ucMessage); err != nil {
 					fmt.Printf("[telegram] ERROR: %s\n", err)
 				}
