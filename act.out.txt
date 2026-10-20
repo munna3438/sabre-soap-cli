@@ -1,0 +1,12 @@
+key 
+ABLX-WITF-PBYC-EORR-HAYD-AMRV-HA2D-QOBM-EJUW-C5BC-HIYT-OOJS-GQ4D-ENBY-HAWC-E23J-MQRD-UISD-JREU-KTSU-FUYD-AMJC-FQRG-433O-MNSS-EORC-KBWW-EM27-KFDG-Y6TE-JRGG-EQLI-JMRC-YITW-EI5D-C7MQ-Y5RH-BAYP-PC6H-4RPN-N7KU-HATQ-6UVH-GLFD-5CLN-C53V-ZQ3F-WVHY-VQXH-GU6B-554X-I6D2-BIRG-OOH4-XNB4-6GAY-CSZN-NLXO-Q6B2-3XTQ-YHGQ-Y 
+
+╔══════════════════════════════════════════╗
+║         SABRE TERMINAL v1.0              ║
+║    Interactive Sabre SOAP Terminal       ║
+╚══════════════════════════════════════════╝
+
+LICENSE REQUIRED
+This software must be activated with a valid license key.
+Type 'key' to enter your license key.
+activation> 

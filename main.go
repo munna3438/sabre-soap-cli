@@ -5,10 +5,54 @@ import (
 	"os"
 	"strings"
 
+	"sabre-monitor/license"
 	"sabre-monitor/sabre"
 )
 
 func main() {
+	lic := license.New()
+
+	fmt.Println(banner())
+
+	li := startLineInput(os.Stdin)
+
+	if !lic.HasValid() {
+		fmt.Println("LICENSE REQUIRED")
+		fmt.Println("This software must be activated with a valid license key.")
+		fmt.Println("Type 'key' to enter your license key.")
+		for {
+			fmt.Print("activation> ")
+			line, ok := li.readLine()
+			if !ok {
+				os.Exit(0)
+			}
+			cmd := strings.ToLower(strings.TrimSpace(line))
+			if cmd == "" {
+				continue
+			}
+			if cmd == "key" {
+				fmt.Print("Enter license key: ")
+				kline, ok2 := li.readLine()
+				if !ok2 {
+					os.Exit(0)
+				}
+				if err := lic.Activate(strings.TrimSpace(kline)); err != nil {
+					fmt.Println("Something is wrong, try again.")
+					continue
+				}
+				fmt.Printf("License activated successfully. Valid until %s\n\n", lic.ExpiresAt())
+				break
+			}
+			if cmd == "exit" || cmd == "quit" {
+				os.Exit(0)
+			}
+			fmt.Println("Something is wrong, try again.")
+		}
+	} else {
+		fmt.Printf("License OK. Expires: %s\n\n", lic.ExpiresAt())
+		lic.MarkChecked()
+	}
+
 	cfg := LoadConfig()
 
 	sabreCfg := &sabre.Config{
@@ -19,10 +63,6 @@ func main() {
 		Domain:   cfg.SabreDomain,
 		IsLive:   cfg.IsLive,
 	}
-
-	fmt.Println(banner())
-
-	li := startLineInput(os.Stdin)
 
 	if cfg.SabreEndpoint == "" || cfg.SabreUsername == "" || cfg.SabrePassword == "" || cfg.SabrePCC == "" {
 		fmt.Println("ERROR: Missing required Sabre configuration in .env file.")
@@ -39,6 +79,11 @@ func main() {
 		fmt.Printf("Flight command : %s\n", flightCommand)
 		fmt.Println()
 
+		if !lic.HasValid() {
+			fmt.Println("Something is wrong, try again.")
+			continue
+		}
+
 		fmt.Print("Creating Sabre session...")
 		session, err := sabre.CreateSession(sabreCfg.Endpoint, sabreCfg.Username, sabreCfg.Password, sabreCfg.PCC, sabreCfg.Domain, sabreCfg.IsLive)
 		if err != nil {
@@ -54,9 +99,9 @@ func main() {
 
 		held := false
 		for {
-			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
+			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li, lic)
 			if !found {
-				restart := postCancelMenu(sabreCfg, session, li)
+				restart := postCancelMenu(sabreCfg, session, li, lic)
 				if restart {
 					break
 				}
@@ -66,8 +111,13 @@ func main() {
 
 			seatHoldCommand := buildSeatHoldCommand(foundClass)
 
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
+			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass, lic) {
 				held = true
+				break
+			}
+
+			if !lic.HasValid() {
+				fmt.Println("Something is wrong, try again.")
 				break
 			}
 
@@ -81,7 +131,7 @@ func main() {
 			continue
 		}
 
-		interactiveTerminal(sabreCfg, session, li)
+		interactiveTerminal(sabreCfg, session, li, lic)
 
 		fmt.Print("Closing Sabre session...")
 		sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
@@ -92,7 +142,7 @@ func main() {
 	fmt.Println("Goodbye.")
 }
 
-func postCancelMenu(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput) bool {
+func postCancelMenu(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput, lic *license.Manager) bool {
 	for {
 		fmt.Println()
 		fmt.Println("Monitoring stopped.")
@@ -112,7 +162,7 @@ func postCancelMenu(sabreCfg *sabre.Config, session *sabre.SessionResult, li *li
 		case "2":
 			fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
 			fmt.Println()
-			interactiveTerminal(sabreCfg, session, li)
+			interactiveTerminal(sabreCfg, session, li, lic)
 		case "3":
 			fmt.Print("Closing Sabre session...")
 			sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
@@ -124,8 +174,38 @@ func postCancelMenu(sabreCfg *sabre.Config, session *sabre.SessionResult, li *li
 	}
 }
 
-func interactiveTerminal(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput) {
+func interactiveTerminal(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput, lic *license.Manager) {
 	for {
+		if !lic.HasValid() {
+			fmt.Print("sabre> ")
+			line, ok := li.readLine()
+			if !ok {
+				break
+			}
+			command := strings.ToLower(strings.TrimSpace(line))
+			if command == "" {
+				continue
+			}
+			if command == "key" {
+				fmt.Print("Enter license key: ")
+				kline, ok2 := li.readLine()
+				if !ok2 {
+					break
+				}
+				if err := lic.Activate(strings.TrimSpace(kline)); err != nil {
+					fmt.Println("Something is wrong, try again.")
+					continue
+				}
+				fmt.Printf("License activated successfully. Valid until %s\n\n", lic.ExpiresAt())
+				continue
+			}
+			if command == "exit" || command == "quit" {
+				break
+			}
+			fmt.Println("Something is wrong, try again.")
+			continue
+		}
+
 		fmt.Print("sabre> ")
 		line, ok := li.readLine()
 		if !ok {

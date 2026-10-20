@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"sabre-monitor/license"
 	"sabre-monitor/sabre"
 )
 
@@ -213,10 +214,18 @@ func seatHoldStatus(response string) string {
 
 const maxSeatHoldAttempts = 2
 
-func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
+func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string, lic *license.Manager) bool {
+	if lic != nil && !lic.HasValid() {
+		fmt.Println("Something is wrong, try again.")
+		return false
+	}
 	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass)
 	ucNotified := false
 	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
+		if lic != nil && !lic.HasValid() {
+			fmt.Println("Something is wrong, try again.")
+			return false
+		}
 		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
 		if err != nil {
 			fmt.Printf("\n[Seat hold #%d] ERROR: %s\n", attempt, err)
@@ -244,7 +253,12 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 	return false
 }
 
-func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, string) {
+func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput, lic *license.Manager) (bool, string) {
+	if lic != nil && !lic.HasValid() {
+		fmt.Println("Something is wrong, try again.")
+		return false, ""
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -252,7 +266,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		keepAliveLoop(ctx, sabreCfg, session, flightCommand, cfg.SabrePollMinutes)
+		keepAliveLoop(ctx, sabreCfg, session, flightCommand, cfg.SabrePollMinutes, lic)
 	}()
 	go func() {
 		defer wg.Done()
@@ -265,6 +279,10 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 	found := false
 	foundClass := ""
 	for {
+		if lic != nil && !lic.HasValid() {
+			fmt.Println("\rSomething is wrong, try again.")
+			break
+		}
 		if ctx.Err() != nil {
 			fmt.Println("\rMonitoring stopped by user.")
 			break
@@ -286,6 +304,9 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 
 	cancel()
 	wg.Wait()
+	if lic != nil && !lic.HasValid() && !found {
+		return false, ""
+	}
 	return found, foundClass
 }
 
@@ -307,8 +328,8 @@ func listenForCancel(ctx context.Context, cancel context.CancelFunc, li *lineInp
 	}
 }
 
-func keepAliveLoop(ctx context.Context, sabreCfg *sabre.Config, session *sabre.SessionResult, flightCommand string, minutes int) {
-	runFlightKeepAlive(sabreCfg, session, flightCommand)
+func keepAliveLoop(ctx context.Context, sabreCfg *sabre.Config, session *sabre.SessionResult, flightCommand string, minutes int, lic *license.Manager) {
+	runFlightKeepAlive(sabreCfg, session, flightCommand, lic)
 
 	ticker := time.NewTicker(time.Duration(minutes) * time.Minute)
 	defer ticker.Stop()
@@ -318,18 +339,23 @@ func keepAliveLoop(ctx context.Context, sabreCfg *sabre.Config, session *sabre.S
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			runFlightKeepAlive(sabreCfg, session, flightCommand)
+			runFlightKeepAlive(sabreCfg, session, flightCommand, lic)
 		}
 	}
 }
 
-func runFlightKeepAlive(sabreCfg *sabre.Config, session *sabre.SessionResult, flightCommand string) {
+func runFlightKeepAlive(sabreCfg *sabre.Config, session *sabre.SessionResult, flightCommand string, lic *license.Manager) {
+	if lic != nil && !lic.HasValid() {
+		return
+	}
 	result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, flightCommand)
 	if err != nil {
+		if lic != nil && !lic.HasValid() {
+			return
+		}
 		fmt.Printf("[keep-alive] ERROR: %s\n", err)
 		return
 	}
-	// fmt.Printf("[keep-alive] Flight command sent (%s)\n", time.Now().Format("15:04:05"))
 	if result.SessionRetried {
 		fmt.Println("[keep-alive] (Session was expired — auto-renewed)")
 	}
