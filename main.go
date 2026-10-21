@@ -192,7 +192,7 @@ func banner() string {
 	return `
 ╔══════════════════════════════════════════╗
 ║         SABRE TERMINAL v1.1              ║
-║     Seat hold with selected row          ║
+║     Add Extra Seat hold command          ║
 ╚══════════════════════════════════════════╝
 `
 }
