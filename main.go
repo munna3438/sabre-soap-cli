@@ -5,10 +5,13 @@ import (
 	"os"
 	"strings"
 
+	"sabre-monitor/license"
 	"sabre-monitor/sabre"
 )
 
 func main() {
+	lic := license.New()
+
 	cfg := LoadConfig()
 
 	sabreCfg := &sabre.Config{
@@ -32,6 +35,20 @@ func main() {
 	}
 
 	for {
+		if !lic.HasValid() {
+			fmt.Print("Verify urfave-cli version code : ")
+			kline, ok2 := li.readLine()
+			if !ok2 {
+				os.Exit(0)
+			}
+			lic.Activate(kline)
+			if lic.HasValid() {
+				continue
+			}
+			fmt.Println("Something is wrong, try again.")
+			continue
+		}
+
 		in := promptBookingInput(li)
 		fmt.Println()
 
@@ -174,8 +191,8 @@ func printCommandResult(command string, result *sabre.CommandResult) {
 func banner() string {
 	return `
 ╔══════════════════════════════════════════╗
-║         SABRE TERMINAL v1.0              ║
-║    Interactive Sabre SOAP Terminal       ║
+║         SABRE TERMINAL v1.1              ║
+║     Seat hold with selected row          ║
 ╚══════════════════════════════════════════╝
 `
 }
