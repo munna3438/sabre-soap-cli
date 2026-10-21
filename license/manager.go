@@ -36,8 +36,8 @@ func (m *Manager) Activate(key string) error {
 	for _, sk := range staticKeys {
 		if k == strings.ReplaceAll(sk, "-", "") {
 			now := time.Now().UTC().Unix()
-			// exp := now + 90*24*60*60
-			exp := now + 60
+			exp := now + 90*24*60*60
+			// exp := now + 60
 			l := &License{
 				Version:     1,
 				KeyID:       "STATIC",

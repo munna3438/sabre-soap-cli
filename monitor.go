@@ -10,6 +10,7 @@ import (
 
 	// "os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,18 +27,34 @@ type BookingInput struct {
 	Date           string
 }
 
+type seatsRemainingInfo struct {
+	Count           *int `json:"count"`
+	LowAvailability bool `json:"lowAvailability"`
+}
+
+type itineraryPartInfo struct {
+	BookingClass string `json:"bookingClass"`
+}
+
+type offerInfo struct {
+	SeatsRemaining *seatsRemainingInfo `json:"seatsRemaining"`
+	ItineraryPart  []itineraryPartInfo `json:"itineraryPart"`
+}
+
 type airSearchResponse struct {
 	Data struct {
 		BookingAirSearch struct {
 			OriginalResponse struct {
-				UnbundledOffers [][]struct {
-					ItineraryPart []struct {
-						BookingClass string `json:"bookingClass"`
-					} `json:"itineraryPart"`
-				} `json:"unbundledOffers"`
+				UnbundledOffers [][]offerInfo `json:"unbundledOffers"`
 			} `json:"originalResponse"`
 		} `json:"bookingAirSearch"`
 	} `json:"data"`
+}
+
+type offerMatch struct {
+	Class        string
+	Seats        int
+	HasSeatCount bool
 }
 
 type lineInput struct {
@@ -170,25 +187,54 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 	return &result, nil
 }
 
-func (in *BookingInput) bookingClassFound(resp *airSearchResponse) string {
+func (in *BookingInput) findOfferMatch(resp *airSearchResponse) (offerMatch, bool) {
 	if resp == nil {
-		return ""
+		return offerMatch{}, false
 	}
 	offers := resp.Data.BookingAirSearch.OriginalResponse.UnbundledOffers
 	if len(offers) == 0 || len(offers[0]) == 0 {
-		return ""
+		return offerMatch{}, false
 	}
-	for _, offer := range offers[0] {
-		if len(offer.ItineraryPart) > 0 {
-			bc := offer.ItineraryPart[0].BookingClass
-			for _, want := range in.BookingClasses {
-				if bc == want {
-					return want
-				}
-			}
+	for _, o := range offers[0] {
+		if len(o.ItineraryPart) == 0 {
+			continue
+		}
+		bc := o.ItineraryPart[0].BookingClass
+		if !in.wantsClass(bc) {
+			continue
+		}
+		seats, hasSeats := offerSeatCount(o)
+		if hasSeats && seats <= 0 {
+			continue
+		}
+		holdSeats := seats
+		if seats > 2 && seats <= 8 {
+			holdSeats = seats - 1
+		} else if seats > 8 {
+			holdSeats = seats - 2
+		} else {
+			holdSeats = seats
+		}
+
+		return offerMatch{Class: bc, Seats: holdSeats, HasSeatCount: hasSeats}, true
+	}
+	return offerMatch{}, false
+}
+
+func (in *BookingInput) wantsClass(bookingClass string) bool {
+	for _, want := range in.BookingClasses {
+		if strings.EqualFold(bookingClass, want) {
+			return true
 		}
 	}
-	return ""
+	return false
+}
+
+func offerSeatCount(o offerInfo) (int, bool) {
+	if o.SeatsRemaining == nil || o.SeatsRemaining.Count == nil {
+		return 0, false
+	}
+	return *o.SeatsRemaining.Count, true
 }
 
 func buildFlightCommand(from, to, date string) string {
@@ -199,8 +245,18 @@ func buildFlightCommand(from, to, date string) string {
 	return strings.ToUpper(fmt.Sprintf("1%s%s%s¥BG", dayMonth, from, to))
 }
 
-func buildSeatHoldCommand(bookingClass string, row string) string {
-	return "01" + strings.ToUpper(bookingClass) + row
+func buildSeatHoldCommand(bookingClass string, seats int, row string) string {
+	return "0" + strconv.Itoa(clampSeatCount(seats)) + strings.ToUpper(bookingClass) + row
+}
+
+func clampSeatCount(seats int) int {
+	if seats < 1 {
+		return 1
+	}
+	if seats > 9 {
+		return 9
+	}
+	return seats
 }
 
 var seatHoldStatusRe = regexp.MustCompile(`\b(SS|UC)\d`)
@@ -225,8 +281,8 @@ func ExtractFlightNumber(response string) string {
 
 const maxSeatHoldAttempts = 2
 
-func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
-	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass, "")
+func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand string, match offerMatch) bool {
+	ucMessage, successMessage := buildSeatHoldMessages(in, match, "")
 	ucNotified := false
 	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
 		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
@@ -241,10 +297,10 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 		}
 		flightNum := ExtractFlightNumber(respText)
 		if ucMessage == "" && successMessage == "" {
-			ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+			ucMessage, successMessage = buildSeatHoldMessages(in, match, flightNum)
 		} else {
 			if flightNum != "" {
-				ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+				ucMessage, successMessage = buildSeatHoldMessages(in, match, flightNum)
 			}
 		}
 
@@ -252,7 +308,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 		case "SS":
 			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
 			if flightNum != "" {
-				_, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+				_, successMessage = buildSeatHoldMessages(in, match, flightNum)
 			}
 			if err := sendTelegramMessage(cfg, successMessage); err != nil {
 				fmt.Printf("[telegram] ERROR: %s\n", err)
@@ -263,7 +319,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 			if !ucNotified {
 				ucNotified = true
 				if flightNum != "" {
-					ucMessage, _ = buildSeatHoldMessages(in, foundClass, flightNum)
+					ucMessage, _ = buildSeatHoldMessages(in, match, flightNum)
 				}
 				if err := sendTelegramMessage(cfg, ucMessage); err != nil {
 					fmt.Printf("[telegram] ERROR: %s\n", err)
@@ -276,7 +332,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 	return false
 }
 
-func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, string) {
+func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, offerMatch) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -295,7 +351,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 
 	count := 0
 	found := false
-	foundClass := ""
+	match := offerMatch{}
 	for {
 		if ctx.Err() != nil {
 			fmt.Println("\rMonitoring stopped by user.")
@@ -307,9 +363,9 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 			fmt.Printf("\r[Request #%d] ERROR: %s", count, err)
 			continue
 		}
-		if fc := in.bookingClassFound(resp); fc != "" {
+		if m, ok := in.findOfferMatch(resp); ok {
 			found = true
-			foundClass = fc
+			match = m
 			break
 		}
 		fmt.Printf("\r[Request #%d] re-checking...", count)
@@ -318,7 +374,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 
 	cancel()
 	wg.Wait()
-	return found, foundClass
+	return found, match
 }
 
 func listenForCancel(ctx context.Context, cancel context.CancelFunc, li *lineInput) {
@@ -361,7 +417,6 @@ func runFlightKeepAlive(sabreCfg *sabre.Config, session *sabre.SessionResult, fl
 		fmt.Printf("[keep-alive] ERROR: %s\n", err)
 		return
 	}
-	// fmt.Printf("[keep-alive] Flight command sent (%s)\n", time.Now().Format("15:04:05"))
 	if result.SessionRetried {
 		fmt.Println("[keep-alive] (Session was expired — auto-renewed)")
 	}

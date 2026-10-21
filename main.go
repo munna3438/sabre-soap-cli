@@ -71,7 +71,7 @@ func main() {
 
 		held := false
 		for {
-			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
+			found, match := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
 			if !found {
 				restart := postCancelMenu(sabreCfg, session, li)
 				if restart {
@@ -81,9 +81,9 @@ func main() {
 				os.Exit(0)
 			}
 
-			seatHoldCommand := buildSeatHoldCommand(foundClass, in.Row)
+			seatHoldCommand := buildSeatHoldCommand(match.Class, match.Seats, in.Row)
 
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
+			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, match) {
 				held = true
 				break
 			}
