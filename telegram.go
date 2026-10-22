@@ -29,12 +29,18 @@ func sendTelegramMessage(cfg *Config, text string) error {
 	return nil
 }
 
-func buildSeatHoldMessages(in *BookingInput, foundClass, flightNumber string) (ucMessage, successMessage string) {
+// buildSeatHoldMessages builds the Telegram messages for one leg. The leg carries its own From/To/
+// Date/Row so a round trip reports the correct direction.
+func buildSeatHoldMessages(leg legSpec, foundClass, flightNumber string) (ucMessage, successMessage string) {
 	fn := flightNumber
 	if fn == "" {
 		fn = "-"
 	}
-	successMessage = fmt.Sprintf("✅ Successfully Seat Blocked. \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nFlight Number: %s", in.From, in.To, in.Date, foundClass, fn)
-	ucMessage = fmt.Sprintf("❌ Seat Not Blocked (UC) \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nFlight Number: %s", in.From, in.To, in.Date, foundClass, fn)
+	row := leg.Row
+	if row == "" {
+		row = "-"
+	}
+	successMessage = fmt.Sprintf("✅ Successfully Seat Blocked (%s). \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nRow: %s\nFlight Number: %s", leg.Label, leg.From, leg.To, leg.Date, foundClass, row, fn)
+	ucMessage = fmt.Sprintf("❌ Seat Not Blocked (UC) (%s) \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nRow: %s\nFlight Number: %s", leg.Label, leg.From, leg.To, leg.Date, foundClass, row, fn)
 	return ucMessage, successMessage
 }

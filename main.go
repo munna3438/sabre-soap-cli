@@ -52,8 +52,10 @@ func main() {
 		in := promptBookingInput(li)
 		fmt.Println()
 
-		flightCommand := buildFlightCommand(in.From, in.To, in.Date)
-		fmt.Printf("Flight command : %s\n", flightCommand)
+		legs := in.legs()
+		for _, l := range legs {
+			fmt.Printf("%s flight command : %s\n", l.Label, buildFlightCommand(l.From, l.To, l.Date))
+		}
 		fmt.Println()
 
 		fmt.Print("Creating Sabre session...")
@@ -67,36 +69,55 @@ func main() {
 		fmt.Printf("Session: %s\n", session.ConversationID)
 		fmt.Println()
 
-		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
+		// held tracks the legs whose seat is already blocked, keyed by leg group index.
+		held := map[int]*heldLeg{}
+		newSearch := false
 
-		held := false
 		for {
-			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
-			if !found {
+			matches, cancelled := waitForClasses(cfg, sabreCfg, in, session, li, held)
+			if cancelled {
 				restart := postCancelMenu(sabreCfg, session, li)
 				if restart {
+					newSearch = true
 					break
 				}
 				fmt.Println("Goodbye.")
 				os.Exit(0)
 			}
 
-			seatHoldCommand := buildSeatHoldCommand(foundClass, in.Row)
+			if len(matches) == 0 {
+				continue
+			}
 
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
-				held = true
+			allHeld := true
+			for _, m := range matches {
+				if _, done := held[m.Leg.GroupIdx]; done {
+					continue
+				}
+				setActiveLeg(m.Leg.GroupIdx)
+				ok, flightNo := trySeatHold(cfg, sabreCfg, session, m.Leg, m.Class)
+				if ok {
+					if flightNo == "" {
+						flightNo = m.FlightNo
+					}
+					held[m.Leg.GroupIdx] = &heldLeg{Leg: m.Leg, Class: m.Class, FlightNo: flightNo}
+				} else {
+					allHeld = false
+					fmt.Printf("\n%s seat NOT held after %d attempts (UC). Clearing Sabre screen and re-searching Biman Bangladesh...\n", m.Leg.Label, maxSeatHoldAttempts)
+					clearSabreScreen(sabreCfg, session)
+				}
+			}
+
+			if allHeld {
 				break
 			}
-
-			fmt.Println("\nSeat NOT held after 2 attempts (UC). Clearing Sabre screen and re-searching Biman Bangladesh...")
-			if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, "I"); err != nil {
-				fmt.Printf("[clear] ERROR sending 'I': %s\n", err)
-			}
 		}
 
-		if !held {
+		if newSearch || len(held) == 0 {
 			continue
 		}
+
+		fmt.Println()
 
 		interactiveTerminal(sabreCfg, session, li)
 
@@ -158,7 +179,7 @@ func interactiveTerminal(sabreCfg *sabre.Config, session *sabre.SessionResult, l
 			break
 		}
 
-		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, command)
+		result, err := sendSabreCommand(sabreCfg, session, command)
 		if err != nil {
 			fmt.Printf("ERROR: %s\n", err)
 			continue
@@ -192,7 +213,7 @@ func banner() string {
 	return `
 ╔══════════════════════════════════════════╗
 ║         SABRE TERMINAL v1.1              ║
-║     Seat hold with selected row          ║
+║     Return way single Seat hold          ║
 ╚══════════════════════════════════════════╝
 `
 }
