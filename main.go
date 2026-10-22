@@ -83,14 +83,17 @@ func main() {
 
 			seatHoldCommand := buildSeatHoldCommand(foundClass, in.Row)
 
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
+			heldNow, reSearch := trySeatHoldSequence(cfg, sabreCfg, session, in, seatHoldCommand, foundClass)
+			if reSearch {
+				fmt.Println("\nSeat NOT held (UC). Clearing Sabre screen and re-searching Biman Bangladesh...")
+				if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, "I"); err != nil {
+					fmt.Printf("[clear] ERROR sending 'I': %s\n", err)
+				}
+				continue
+			}
+			if heldNow {
 				held = true
 				break
-			}
-
-			fmt.Println("\nSeat NOT held after 2 attempts (UC). Clearing Sabre screen and re-searching Biman Bangladesh...")
-			if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, "I"); err != nil {
-				fmt.Printf("[clear] ERROR sending 'I': %s\n", err)
 			}
 		}
 

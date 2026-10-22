@@ -45,9 +45,31 @@ func TestBuildCommands(t *testing.T) {
 		t.Errorf("flight command = %q, want %q", got, want)
 	}
 
-	got = buildSeatHoldCommand("b")
+	got = buildSeatHoldCommand("b", "1")
 	if got != "01B1" {
 		t.Errorf("seat hold command = %q, want %q", got, "01B1")
+	}
+}
+
+func TestSeatHoldOutcome(t *testing.T) {
+	cases := []struct {
+		first      string
+		second     string
+		wantHeld   bool
+		wantSearch bool
+	}{
+		{"SS", "", true, false},   // first command held -> go to terminal
+		{"UC", "SS", true, false}, // first failed, second held -> go to terminal
+		{"UC", "UC", false, true}, // both failed -> re-search
+		{"", "UC", false, true},   // no extra command, generated failed -> re-search
+		{"", "SS", true, false},   // no extra command, generated held -> go to terminal
+		{"", "", false, true},     // nothing worked -> re-search
+	}
+	for _, c := range cases {
+		held, reSearch := seatHoldOutcome(c.first, c.second)
+		if held != c.wantHeld || reSearch != c.wantSearch {
+			t.Errorf("seatHoldOutcome(%q, %q) = (%v, %v), want (%v, %v)", c.first, c.second, held, reSearch, c.wantHeld, c.wantSearch)
+		}
 	}
 }
 
@@ -80,7 +102,7 @@ func TestBuildSeatHoldMessages(t *testing.T) {
 		BookingClasses: []string{"B", "C", "D"},
 		Date:           "2026-08-20",
 	}
-	ucMsg, okMsg := buildSeatHoldMessages(in, "B")
+	ucMsg, okMsg := buildSeatHoldMessages(in, "B", "")
 
 	if !strings.Contains(ucMsg, "Booking Class: B") {
 		t.Errorf("uc message = %q, want to contain %q", ucMsg, "Booking Class: B")
@@ -95,10 +117,13 @@ func TestBuildSeatHoldMessages(t *testing.T) {
 }
 
 func TestPromptInput(t *testing.T) {
-	li := startLineInput(strings.NewReader("dac\nbkk\nb,c,d\n2026-08-20\n"))
+	li := startLineInput(strings.NewReader("dac\nbkk\nb,c,d\n1\n2026-08-20\n01T1\n"))
 	in := promptBookingInput(li)
-	if in.From != "DAC" || in.To != "BKK" || in.BookingClass != "B,C,D" || in.Date != "2026-08-20" {
+	if in.From != "DAC" || in.To != "BKK" || in.BookingClass != "B,C,D" || in.Row != "1" || in.Date != "2026-08-20" {
 		t.Errorf("unexpected input parsed: %+v", in)
+	}
+	if in.ExtraHoldCommand != "01T1" {
+		t.Errorf("ExtraHoldCommand = %q, want %q", in.ExtraHoldCommand, "01T1")
 	}
 	wantClasses := []string{"B", "C", "D"}
 	if len(in.BookingClasses) != len(wantClasses) {

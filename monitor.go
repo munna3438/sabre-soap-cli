@@ -18,12 +18,13 @@ import (
 )
 
 type BookingInput struct {
-	From           string
-	To             string
-	BookingClass   string
-	BookingClasses []string
-	Row            string
-	Date           string
+	From             string
+	To               string
+	BookingClass     string
+	BookingClasses   []string
+	Row              string
+	Date             string
+	ExtraHoldCommand string
 }
 
 type airSearchResponse struct {
@@ -70,6 +71,7 @@ func promptBookingInput(li *lineInput) *BookingInput {
 	in.BookingClass = promptValue(li, "3. Booking class (e.g. B or B,C,D)", "")
 	in.Row = promptValue(li, "4. Row (e.g 1)", "")
 	in.Date = promptValue(li, "5. Date (YYYY-MM-DD)", "")
+	in.ExtraHoldCommand = promptValue(li, "6. Extra Hold Command (e.g. 01T1)", "")
 	in.From = strings.ToUpper(in.From)
 	in.To = strings.ToUpper(in.To)
 	in.BookingClass = strings.ToUpper(in.BookingClass)
@@ -223,57 +225,98 @@ func ExtractFlightNumber(response string) string {
 	return ""
 }
 
-const maxSeatHoldAttempts = 2
+func seatHoldOutcome(firstStatus, secondStatus string) (held bool, reSearch bool) {
+	if firstStatus == "SS" || secondStatus == "SS" {
+		return true, false
+	}
+	return false, true
+}
 
-func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
-	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass, "")
+func trySeatHoldSequence(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) (bool, bool) {
 	ucNotified := false
-	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
-		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
-		if err != nil {
-			fmt.Printf("\n[Seat hold #%d] ERROR: %s\n", attempt, err)
-			continue
-		}
 
-		respText := ""
-		if result != nil {
-			respText = result.Response
-		}
-		flightNum := ExtractFlightNumber(respText)
-		if ucMessage == "" && successMessage == "" {
-			ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
-		} else {
-			if flightNum != "" {
-				ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
-			}
-		}
-
-		switch seatHoldStatus(respText) {
-		case "SS":
-			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
-			if flightNum != "" {
-				_, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
-			}
-			if err := sendTelegramMessage(cfg, successMessage); err != nil {
-				fmt.Printf("[telegram] ERROR: %s\n", err)
-			}
-			return true
-		case "UC":
-			fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
-			if !ucNotified {
-				ucNotified = true
-				if flightNum != "" {
-					ucMessage, _ = buildSeatHoldMessages(in, foundClass, flightNum)
-				}
-				if err := sendTelegramMessage(cfg, ucMessage); err != nil {
-					fmt.Printf("[telegram] ERROR: %s\n", err)
-				}
-			}
-		default:
-			fmt.Printf("[Seat hold #%d] Unknown seat-hold response. Retrying...\n", attempt)
+	notifySuccess := func(respText string) {
+		_, msg := buildSeatHoldMessages(in, foundClass, ExtractFlightNumber(respText))
+		if err := sendTelegramMessage(cfg, msg); err != nil {
+			fmt.Printf("[telegram] ERROR: %s\n", err)
 		}
 	}
-	return false
+
+	notifyUC := func(respText string) {
+		if ucNotified {
+			return
+		}
+		ucNotified = true
+		msg, _ := buildSeatHoldMessages(in, foundClass, ExtractFlightNumber(respText))
+		if err := sendTelegramMessage(cfg, msg); err != nil {
+			fmt.Printf("[telegram] ERROR: %s\n", err)
+		}
+	}
+
+	runGenerated := func() (string, string) {
+		fmt.Printf("\nRunning seat hold command: %s\n", seatHoldCommand)
+		res, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
+		if err != nil {
+			fmt.Printf("ERROR running seat hold command: %s\n", err)
+			return "", ""
+		}
+		if res != nil {
+			printCommandResult(seatHoldCommand, res)
+			return seatHoldStatus(res.Response), res.Response
+		}
+		return "", ""
+	}
+
+	extraCmd := strings.TrimSpace(in.ExtraHoldCommand)
+	if extraCmd != "" {
+		extraCmd = strings.ReplaceAll(extraCmd, "\\", "¥")
+		fmt.Printf("\nRunning first hold command: %s\n", extraCmd)
+		res1, err1 := sabre.SendCommandWithExistingSession(sabreCfg, session, extraCmd)
+		if err1 != nil {
+			fmt.Printf("ERROR running first hold command: %s\n", err1)
+		} else if res1 != nil {
+			printCommandResult(extraCmd, res1)
+		}
+
+		resp1 := ""
+		if res1 != nil {
+			resp1 = res1.Response
+		}
+		firstStatus := seatHoldStatus(resp1)
+
+		if firstStatus == "SS" {
+			fmt.Printf("First command held the seat (%s). Running second command...\n", extraCmd)
+			if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand); err != nil {
+				fmt.Printf("ERROR running second hold command: %s\n", err)
+			}
+			notifySuccess(resp1)
+			return seatHoldOutcome(firstStatus, "")
+		}
+
+		if firstStatus == "UC" {
+			fmt.Println("First command returned UC. Trying generated seat hold command...")
+			notifyUC(resp1)
+		} else {
+			fmt.Println("First command did not return SS/UC. Trying generated seat hold command...")
+		}
+
+		secondStatus, resp2 := runGenerated()
+		if secondStatus == "SS" {
+			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
+			notifySuccess(resp2)
+		}
+		return seatHoldOutcome(firstStatus, secondStatus)
+	}
+
+	// No extra hold command provided -> only the generated command is used.
+	status, resp := runGenerated()
+	if status == "SS" {
+		fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
+		notifySuccess(resp)
+	} else if status == "UC" {
+		notifyUC(resp)
+	}
+	return seatHoldOutcome("", status)
 }
 
 func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, string) {
