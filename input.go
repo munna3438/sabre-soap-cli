@@ -99,13 +99,7 @@ func parseClasses(s string) []string {
 }
 
 func seatHOldCount(available int) int {
-	if available > 2 {
-		return available - 1
-	} else if available > 2 && available <= 8 {
-		return available - 2
-	} else {
-		return available
-	}
+	return 1
 }
 
 func buildSeatHoldCommand(row int, bookingClass string, seats int) string {
