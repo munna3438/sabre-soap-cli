@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"sabre-monitor/sabre"
 )
+
+const availabilityRetryDelay = 1 * time.Second
 
 func main() {
 	cfg := LoadConfig()
@@ -31,97 +34,69 @@ func main() {
 		os.Exit(1)
 	}
 
-	for {
-		in := promptBookingInput(li)
-		fmt.Println()
+	in, ok := promptBookingInput(li)
+	if !ok {
+		fmt.Println("\nInput closed. Goodbye.")
+		return
+	}
 
-		flightCommand := buildFlightCommand(in.From, in.To, in.Date)
-		fmt.Printf("Flight command : %s\n", flightCommand)
-		fmt.Println()
+	fmt.Println()
+	fmt.Printf("Flight command: %s\n", in.FlightCommand)
+	fmt.Println()
 
-		fmt.Print("Creating Sabre session...")
-		session, err := sabre.CreateSession(sabreCfg.Endpoint, sabreCfg.Username, sabreCfg.Password, sabreCfg.PCC, sabreCfg.Domain, sabreCfg.IsLive)
+	fmt.Print("Creating Sabre session...")
+	session, err := sabre.CreateSession(sabreCfg.Endpoint, sabreCfg.Username, sabreCfg.Password, sabreCfg.PCC, sabreCfg.Domain, sabreCfg.IsLive)
+	if err != nil {
+		fmt.Printf(" FAILED\nERROR: %s\n", err)
+		pause(li)
+		os.Exit(1)
+	}
+	fmt.Println(" OK")
+	fmt.Printf("Session: %s\n", session.ConversationID)
+	fmt.Println()
+
+	fmt.Printf("Searching availability for booking class %s...\n", in.BookingClass)
+	fmt.Println("(Press Ctrl+C to stop)")
+
+	seatHoldRow := 0
+	for attempt := 1; seatHoldRow == 0; attempt++ {
+		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, in.FlightCommand)
 		if err != nil {
-			fmt.Printf(" FAILED\nERROR: %s\n", err)
-			pause(li)
-			os.Exit(1)
-		}
-		fmt.Println(" OK")
-		fmt.Printf("Session: %s\n", session.ConversationID)
-		fmt.Println()
-
-		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
-
-		held := false
-		for {
-			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
-			if !found {
-				restart := postCancelMenu(sabreCfg, session, li)
-				if restart {
-					break
-				}
-				fmt.Println("Goodbye.")
-				os.Exit(0)
-			}
-
-			seatHoldCommand := buildSeatHoldCommand(foundClass)
-
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
-				held = true
-				break
-			}
-
-			fmt.Println("\nSeat NOT held after 2 attempts (UC). Clearing Sabre screen and re-searching Biman Bangladesh...")
-			if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, "I"); err != nil {
-				fmt.Printf("[clear] ERROR sending 'I': %s\n", err)
-			}
-		}
-
-		if !held {
+			fmt.Printf("\r[Attempt #%d] ERROR: %s", attempt, err)
+			time.Sleep(availabilityRetryDelay)
 			continue
 		}
 
-		interactiveTerminal(sabreCfg, session, li)
+		row, found := findAvailableClass(result.Response, in.BookingClass)
+		if !found {
+			fmt.Printf("\r[Attempt #%d] Class %s not available, re-checking availability...", attempt, in.BookingClass)
+			time.Sleep(availabilityRetryDelay)
+			continue
+		}
 
-		fmt.Print("Closing Sabre session...")
-		sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
+		seatHoldRow = row
+		fmt.Printf("\rClass %s available on availability line %d.\n", in.BookingClass, row)
+	}
+
+	seatHoldCommand := buildSeatHoldCommand(seatHoldRow, in.BookingClass)
+	if result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand); err != nil {
+		fmt.Printf("ERROR: %s\n", err)
+	} else {
+		printCommandResult(seatHoldCommand, result)
+	}
+
+	fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
+	fmt.Println()
+	interactiveTerminal(sabreCfg, session, li)
+
+	fmt.Print("Closing Sabre session...")
+	if err := sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token); err != nil {
+		fmt.Printf(" ERROR: %s\n", err)
+	} else {
 		fmt.Println(" OK")
-		break
 	}
 
 	fmt.Println("Goodbye.")
-}
-
-func postCancelMenu(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput) bool {
-	for {
-		fmt.Println()
-		fmt.Println("Monitoring stopped.")
-		fmt.Println("[1] New search")
-		fmt.Println("[2] Sabre terminal")
-		fmt.Println("[3] Exit")
-		line, ok := li.readLine()
-		if !ok {
-			return false
-		}
-		switch strings.TrimSpace(line) {
-		case "1":
-			fmt.Print("Closing Sabre session...")
-			sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
-			fmt.Println(" OK")
-			return true
-		case "2":
-			fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
-			fmt.Println()
-			interactiveTerminal(sabreCfg, session, li)
-		case "3":
-			fmt.Print("Closing Sabre session...")
-			sabre.CloseSession(sabreCfg.Endpoint, session.ConversationID, session.Token)
-			fmt.Println(" OK")
-			return false
-		default:
-			fmt.Println("Invalid choice.")
-		}
-	}
 }
 
 func interactiveTerminal(sabreCfg *sabre.Config, session *sabre.SessionResult, li *lineInput) {

@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -14,37 +13,18 @@ type Config struct {
 	SabrePCC      string
 	SabreDomain   string
 	IsLive        bool
-
-	MysearchURL         string
-	MysearchPollSeconds int
-	SabreRetryMinutes   int
-	SabrePollMinutes    int
-
-	BimanGraphqlURL string
-
-	TelegramBotToken string
-	TelegramChatID   string
 }
 
 func LoadConfig() *Config {
 	loadDotEnv()
 
 	return &Config{
-		SabreEndpoint:       getEnv("SABRE_ENDPOINT", "https://webservices.platform.sabre.com"),
-		SabreUsername:       getEnv("SABRE_USERNAME", "593716"),
-		SabrePassword:       getEnv("SABRE_PASSWORD", "83015s3p"),
-		SabrePCC:            getEnv("SABRE_PCC", "06EL"),
-		SabreDomain:         getEnv("SABRE_DOMAIN", "DEFAULT"),
-		IsLive:              getEnvBool("IS_LIVE", true),
-		MysearchURL:         getEnv("MYSEARCH_API_URL", "http://localhost:8000/api/check-seat"),
-		MysearchPollSeconds: getEnvInt("MYSEARCH_POLL_INTERVAL", 5),
-		SabreRetryMinutes:   getEnvInt("SABRE_RETRY_MINUTES", 20),
-		SabrePollMinutes:    getEnvInt("SABRE_POLL_MINUTES", 15),
-
-		BimanGraphqlURL: getEnv("BIMAN_GRAPHQL_URL", "https://booking.biman-airlines.com/api/graphql"),
-
-		TelegramBotToken: getEnv("SABRE_TELEGRAM_BOT_TOKEN", "8419680283:AAEwQN3pfXeKlQniWeKjgix66WmfOzVeA9Y"),
-		TelegramChatID:   getEnv("SABRE_TELEGRAM_CHAT_ID", "-1001737453348"),
+		SabreEndpoint: getEnv("SABRE_ENDPOINT", "https://webservices.platform.sabre.com"),
+		SabreUsername: getEnv("SABRE_USERNAME", "593716"),
+		SabrePassword: getEnv("SABRE_PASSWORD", "83015s3p"),
+		SabrePCC:      getEnv("SABRE_PCC", "06EL"),
+		SabreDomain:   getEnv("SABRE_DOMAIN", "DEFAULT"),
+		IsLive:        getEnvBool("IS_LIVE", true),
 	}
 }
 
@@ -78,16 +58,6 @@ func loadDotEnv() {
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
-	}
-	return fallback
-}
-
-func getEnvInt(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err == nil && n > 0 {
-			return n
-		}
 	}
 	return fallback
 }

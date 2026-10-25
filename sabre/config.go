@@ -7,8 +7,4 @@ type Config struct {
 	PCC      string
 	Domain   string
 	IsLive   bool
-
-	MysearchURL         string
-	MysearchPollSeconds int
-	SabreRetryMinutes   int
 }
