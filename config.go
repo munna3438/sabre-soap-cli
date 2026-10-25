@@ -13,6 +13,9 @@ type Config struct {
 	SabrePCC      string
 	SabreDomain   string
 	IsLive        bool
+
+	TelegramBotToken string
+	TelegramChatID   string
 }
 
 func LoadConfig() *Config {
@@ -25,6 +28,9 @@ func LoadConfig() *Config {
 		SabrePCC:      getEnv("SABRE_PCC", "06EL"),
 		SabreDomain:   getEnv("SABRE_DOMAIN", "DEFAULT"),
 		IsLive:        getEnvBool("IS_LIVE", true),
+
+		TelegramBotToken: getEnv("SABRE_TELEGRAM_BOT_TOKEN", "8419680283:AAEwQN3pfXeKlQniWeKjgix66WmfOzVeA9Y"),
+		TelegramChatID:   getEnv("SABRE_TELEGRAM_CHAT_ID", "-1001737453348"),
 	}
 }
 

@@ -8,8 +8,8 @@ import (
 )
 
 type BookingInput struct {
-	FlightCommand string
-	BookingClass  string
+	FlightCommand  string
+	BookingClasses []string
 }
 
 type lineInput struct {
@@ -42,14 +42,22 @@ func promptBookingInput(li *lineInput) (*BookingInput, bool) {
 		return nil, false
 	}
 
-	bookingClass, ok := promptRequired(li, "2. Booking class (e.g. T)")
-	if !ok {
-		return nil, false
+	var bookingClasses []string
+	for {
+		raw, ok := promptRequired(li, "2. Booking classes (comma-separated, e.g. H,T,B)")
+		if !ok {
+			return nil, false
+		}
+		bookingClasses = parseClasses(raw)
+		if len(bookingClasses) > 0 {
+			break
+		}
+		fmt.Println("At least one booking class is required.")
 	}
 
 	return &BookingInput{
-		FlightCommand: normalizeFlightCommand(flightCommand),
-		BookingClass:  strings.ToUpper(strings.TrimSpace(bookingClass)),
+		FlightCommand:  normalizeFlightCommand(flightCommand),
+		BookingClasses: bookingClasses,
 	}, true
 }
 
@@ -73,6 +81,33 @@ func normalizeFlightCommand(command string) string {
 	return strings.ToUpper(command)
 }
 
-func buildSeatHoldCommand(row int, bookingClass string) string {
-	return fmt.Sprintf("0%d%s1", row, strings.ToUpper(strings.TrimSpace(bookingClass)))
+func parseClasses(s string) []string {
+	var classes []string
+	seen := make(map[string]bool)
+	for _, r := range strings.ToUpper(s) {
+		if r < 'A' || r > 'Z' {
+			continue
+		}
+		c := string(r)
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
+		classes = append(classes, c)
+	}
+	return classes
+}
+
+func seatHOldCount(available int) int {
+	if available > 2 {
+		return available - 1
+	} else if available > 2 && available <= 8 {
+		return available - 2
+	} else {
+		return available
+	}
+}
+
+func buildSeatHoldCommand(row int, bookingClass string, seats int) string {
+	return fmt.Sprintf("0%d%s%d", row, strings.ToUpper(strings.TrimSpace(bookingClass)), seats)
 }

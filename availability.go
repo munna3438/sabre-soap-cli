@@ -13,17 +13,32 @@ var (
 	classAvailabilityRe = regexp.MustCompile(`^([A-Z])([1-9])$`)
 )
 
+type availabilityMatch struct {
+	Row       int
+	Class     string
+	Available int
+}
+
 // findAvailableClass checks only the first availability row (e.g. " 1BG").
-// It returns that row's number and whether bookingClass is open on it
-// (letter + digit 1-9). Later rows are ignored.
-func findAvailableClass(response, bookingClass string) (int, bool) {
-	bookingClass = strings.ToUpper(strings.TrimSpace(bookingClass))
-	if bookingClass == "" {
-		return 0, false
+// It returns the row number, the matched class, and how many seats are open
+// for it (the digit after the class letter). Classes are checked in input
+// order, so the first requested class found wins. Later rows are ignored.
+func findAvailableClass(response string, bookingClasses []string) (availabilityMatch, bool) {
+	classes := make([]string, 0, len(bookingClasses))
+	for _, c := range bookingClasses {
+		c = strings.ToUpper(strings.TrimSpace(c))
+		if c != "" {
+			classes = append(classes, c)
+		}
+	}
+	if len(classes) == 0 {
+		return availabilityMatch{}, false
 	}
 
 	row := 0
 	inFirstRow := false
+	available := make(map[string]int)
+
 	for _, line := range strings.Split(response, "\n") {
 		line = strings.TrimRight(line, "\r")
 
@@ -40,11 +55,25 @@ func findAvailableClass(response, bookingClass string) (int, bool) {
 
 		for _, token := range strings.Fields(line) {
 			m := classAvailabilityRe.FindStringSubmatch(token)
-			if m != nil && m[1] == bookingClass {
-				return row, true
+			if m == nil {
+				continue
 			}
+			if _, exists := available[m[1]]; exists {
+				continue
+			}
+			available[m[1]], _ = strconv.Atoi(m[2])
 		}
 	}
 
-	return 0, false
+	if !inFirstRow {
+		return availabilityMatch{}, false
+	}
+
+	for _, c := range classes {
+		if seats, ok := available[c]; ok {
+			return availabilityMatch{Row: row, Class: c, Available: seats}, true
+		}
+	}
+
+	return availabilityMatch{}, false
 }
