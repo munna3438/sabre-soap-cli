@@ -19,38 +19,26 @@ type availabilityMatch struct {
 	Available int
 }
 
-// findAvailableClass checks only the first availability row (e.g. " 1BG").
-// It returns the row number, the matched class, and how many seats are open
-// for it (the digit after the class letter). Classes are checked in input
-// order, so the first requested class found wins. Later rows are ignored.
-func findAvailableClass(response string, bookingClasses []string) (availabilityMatch, bool) {
-	classes := make([]string, 0, len(bookingClasses))
-	for _, c := range bookingClasses {
-		c = strings.ToUpper(strings.TrimSpace(c))
-		if c != "" {
-			classes = append(classes, c)
-		}
-	}
-	if len(classes) == 0 {
+// findAvailableClass checks each requested class on its requested availability
+// row. Requests are checked in input order, so the first match wins. For
+// example "H1" checks class H on row 1 and "D3" checks class D on row 3.
+func findAvailableClass(response string, requests []ClassRequest) (availabilityMatch, bool) {
+	if len(requests) == 0 {
 		return availabilityMatch{}, false
 	}
 
+	// Seats open per row and class, e.g. available[3]["D"] = 9.
+	available := make(map[int]map[string]int)
 	row := 0
-	inFirstRow := false
-	available := make(map[string]int)
 
 	for _, line := range strings.Split(response, "\n") {
 		line = strings.TrimRight(line, "\r")
 
 		if m := availabilityRowRe.FindStringSubmatch(line); m != nil {
-			if inFirstRow {
-				break // reached the second row; only the first row is checked
-			}
 			row, _ = strconv.Atoi(m[1])
-			inFirstRow = true
 		}
-		if !inFirstRow {
-			continue
+		if row == 0 {
+			continue // header lines before the first availability row
 		}
 
 		for _, token := range strings.Fields(line) {
@@ -58,20 +46,27 @@ func findAvailableClass(response string, bookingClasses []string) (availabilityM
 			if m == nil {
 				continue
 			}
-			if _, exists := available[m[1]]; exists {
+			if available[row] == nil {
+				available[row] = make(map[string]int)
+			}
+			if _, exists := available[row][m[1]]; exists {
 				continue
 			}
-			available[m[1]], _ = strconv.Atoi(m[2])
+			available[row][m[1]], _ = strconv.Atoi(m[2])
 		}
 	}
 
-	if !inFirstRow {
-		return availabilityMatch{}, false
-	}
-
-	for _, c := range classes {
-		if seats, ok := available[c]; ok {
-			return availabilityMatch{Row: row, Class: c, Available: seats}, true
+	for _, req := range requests {
+		class := strings.ToUpper(strings.TrimSpace(req.Class))
+		if class == "" {
+			continue
+		}
+		reqRow := req.Row
+		if reqRow < 1 {
+			reqRow = defaultAvailabilityRow
+		}
+		if seats, ok := available[reqRow][class]; ok {
+			return availabilityMatch{Row: reqRow, Class: class, Available: seats}, true
 		}
 	}
 

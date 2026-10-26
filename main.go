@@ -56,67 +56,77 @@ func main() {
 	fmt.Printf("Session: %s\n", session.ConversationID)
 	fmt.Println()
 
-	classList := strings.Join(in.BookingClasses, ", ")
+	classList := formatClassRequests(in.BookingClasses)
 	fmt.Printf("Searching availability for booking classes %s...\n", classList)
 	fmt.Println("(Press Ctrl+C to stop)")
 
-	seatHoldRow := 0
-	seatHoldClass := ""
-	seatHoldSeats := 0
 	responseLines := 0
-	for attempt := 1; seatHoldRow == 0; attempt++ {
-		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, in.FlightCommand)
-		if err != nil {
-			fmt.Printf("\r[Attempt #%d] ERROR: %s", attempt, err)
-			continue
+
+	for {
+		seatHoldRow := 0
+		seatHoldClass := ""
+		seatHoldSeats := 0
+
+		// Wait until a requested class is open on its requested row.
+		for attempt := 1; seatHoldRow == 0; attempt++ {
+			result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, in.FlightCommand)
+
+			if err != nil {
+				fmt.Printf("\r[Attempt #%d] ERROR: %s", attempt, err)
+				continue
+			}
+
+			match, found := findAvailableClass(result.Response, in.BookingClasses)
+			responseLines = showAvailabilityResponse(result.Response, responseLines)
+			if !found {
+				fmt.Printf("\r[Attempt #%d] Classes %s not available on their rows, re-checking availability...", attempt, classList)
+				continue
+			}
+
+			seatHoldRow = match.Row
+			seatHoldClass = match.Class
+			seatHoldSeats = seatHOldCount(match.Available)
+			fmt.Printf("\rClass %s available on line %d (%d seats) — holding %d.\n", match.Class, match.Row, match.Available, seatHoldSeats)
 		}
 
-		match, found := findAvailableClass(result.Response, in.BookingClasses)
-		responseLines = showAvailabilityResponse(result.Response, responseLines)
-		if !found {
-			fmt.Printf("\r[Attempt #%d] Classes %s not available, re-checking availability...", attempt, classList)
-			continue
+		seatHoldCommand := buildSeatHoldCommand(seatHoldRow, seatHoldClass, seatHoldSeats)
+		ucNotified := false
+		seatHeld := false
+
+		for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
+			holdResult, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
+			if err != nil {
+				fmt.Printf("[Seat hold #%d] ERROR: %s\n", attempt, err)
+				continue
+			}
+
+			printCommandResult(seatHoldCommand, holdResult)
+
+			if seatHoldSucceeded(holdResult) {
+				seatHeld = true
+				fmt.Println("Seat held successfully.")
+				notifyTelegram(cfg, buildSeatHoldSuccessMessage(in, seatHoldRow, seatHoldClass, seatHoldSeats))
+				break
+			}
+
+			if seatHoldStatus(holdResult.Response) == "UC" {
+				fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
+				if !ucNotified {
+					ucNotified = true
+					notifyTelegram(cfg, buildSeatHoldFailureMessage(in, seatHoldRow, seatHoldClass, seatHoldSeats))
+				}
+			} else {
+				fmt.Printf("[Seat hold #%d] Unknown seat-hold response. Retrying...\n", attempt)
+			}
 		}
 
-		seatHoldRow = match.Row
-		seatHoldClass = match.Class
-		seatHoldSeats = seatHOldCount(match.Available)
-		fmt.Printf("\rClass %s available on line %d (%d seats) — holding %d.\n", match.Class, match.Row, match.Available, seatHoldSeats)
-	}
-
-	seatHoldCommand := buildSeatHoldCommand(seatHoldRow, seatHoldClass, seatHoldSeats)
-	ucNotified := false
-	seatHeld := false
-
-	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
-		holdResult, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
-		if err != nil {
-			fmt.Printf("[Seat hold #%d] ERROR: %s\n", attempt, err)
-			continue
-		}
-
-		printCommandResult(seatHoldCommand, holdResult)
-
-		if seatHoldSucceeded(holdResult) {
-			seatHeld = true
-			fmt.Println("Seat held successfully.")
-			notifyTelegram(cfg, buildSeatHoldSuccessMessage(in, seatHoldRow, seatHoldClass, seatHoldSeats))
+		if seatHeld {
 			break
 		}
 
-		if seatHoldStatus(holdResult.Response) == "UC" {
-			fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
-			if !ucNotified {
-				ucNotified = true
-				notifyTelegram(cfg, buildSeatHoldFailureMessage(in, seatHoldRow, seatHoldClass, seatHoldSeats))
-			}
-		} else {
-			fmt.Printf("[Seat hold #%d] Unknown seat-hold response. Retrying...\n", attempt)
-		}
-	}
-
-	if !seatHeld {
-		fmt.Printf("Seat NOT held after %d attempts. Opening Sabre terminal.\n", maxSeatHoldAttempts)
+		// Seat hold failed after all attempts: re-run availability search
+		// instead of going straight to the terminal.
+		fmt.Printf("Seat NOT held after %d attempts. Re-checking availability...\n", maxSeatHoldAttempts)
 	}
 
 	fmt.Println("Entering interactive Sabre terminal. Type 'exit' to close.")
@@ -194,10 +204,10 @@ func printCommandResult(command string, result *sabre.CommandResult) {
 
 func banner() string {
 	return `
-╔══════════════════════════════════════════╗
-║         SABRE TERMINAL v1.0              ║
-║    Interactive Sabre SOAP Terminal       ║
-╚══════════════════════════════════════════╝
+╔════════════════════════════════════════════════════╗
+║               SABRE TERMINAL v1.0                  ║
+║    Sabre terminal multi row Single seat hold       ║
+╚════════════════════════════════════════════════════╝
 `
 }
 

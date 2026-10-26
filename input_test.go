@@ -26,21 +26,10 @@ func TestBuildSeatHoldCommand(t *testing.T) {
 }
 
 func TestSeatHoldCount(t *testing.T) {
-	cases := []struct {
-		available int
-		want      int
-	}{
-		{1, 1},
-		{2, 2},
-		{3, 2},
-		{4, 3},
-		{7, 6},
-		{9, 8},
-		{0, 0},
-	}
-	for _, c := range cases {
-		if got := seatHOldCount(c.available); got != c.want {
-			t.Errorf("seatHOldCount(%d) = %d, want %d", c.available, got, c.want)
+	cases := []int{1, 2, 3, 4, 7, 9}
+	for _, available := range cases {
+		if got := seatHOldCount(available); got != 1 {
+			t.Errorf("seatHOldCount(%d) = %d, want 1", available, got)
 		}
 	}
 }
@@ -53,36 +42,45 @@ func TestNormalizeFlightCommand(t *testing.T) {
 	}
 }
 
-func TestParseClasses(t *testing.T) {
+func TestParseClassRequests(t *testing.T) {
 	cases := []struct {
 		input string
-		want  []string
+		want  []ClassRequest
 	}{
-		{"h,t,b", []string{"H", "T", "B"}},
-		{"H T B", []string{"H", "T", "B"}},
-		{"h,,t,,b", []string{"H", "T", "B"}},
-		{"HTB", []string{"H", "T", "B"}},
-		{"h,T,H", []string{"H", "T"}},
-		{"  t  ", []string{"T"}},
+		{"1q,2t", []ClassRequest{{Row: 1, Class: "Q"}, {Row: 2, Class: "T"}}},
+		{"1Q,3H,2T", []ClassRequest{{Row: 1, Class: "Q"}, {Row: 3, Class: "H"}, {Row: 2, Class: "T"}}},
+		{"1 Q", []ClassRequest{{Row: 1, Class: "Q"}}},
+		{"1q 3h 2t", []ClassRequest{{Row: 1, Class: "Q"}, {Row: 3, Class: "H"}, {Row: 2, Class: "T"}}},
+		{"1Q2T", []ClassRequest{{Row: 1, Class: "Q"}, {Row: 2, Class: "T"}}},
+		{"1q,1q,2T", []ClassRequest{{Row: 1, Class: "Q"}, {Row: 2, Class: "T"}}},
+		{"QTH", []ClassRequest{{Row: 1, Class: "Q"}, {Row: 1, Class: "T"}, {Row: 1, Class: "H"}}},
+		{"  3T  ", []ClassRequest{{Row: 3, Class: "T"}}},
 		{"", nil},
 	}
 	for _, c := range cases {
-		got := parseClasses(c.input)
+		got := parseClassRequests(c.input)
 		if len(got) != len(c.want) {
-			t.Errorf("parseClasses(%q) = %v, want %v", c.input, got, c.want)
+			t.Errorf("parseClassRequests(%q) = %v, want %v", c.input, got, c.want)
 			continue
 		}
 		for i := range c.want {
 			if got[i] != c.want[i] {
-				t.Errorf("parseClasses(%q) = %v, want %v", c.input, got, c.want)
+				t.Errorf("parseClassRequests(%q) = %v, want %v", c.input, got, c.want)
 				break
 			}
 		}
 	}
 }
 
+func TestFormatClassRequests(t *testing.T) {
+	got := formatClassRequests([]ClassRequest{{Row: 1, Class: "H"}, {Row: 1, Class: "T"}, {Row: 3, Class: "D"}})
+	if want := "1H, 1T, 3D"; got != want {
+		t.Errorf("formatClassRequests = %q, want %q", got, want)
+	}
+}
+
 func TestPromptBookingInput(t *testing.T) {
-	li := startLineInput(strings.NewReader("103novdacbkk\\bg\nh,t,b\n"))
+	li := startLineInput(strings.NewReader("103novdacbkk\\bg\n1q,2t,1b\n"))
 	in, ok := promptBookingInput(li)
 	if !ok {
 		t.Fatal("promptBookingInput returned not ok")
@@ -90,7 +88,7 @@ func TestPromptBookingInput(t *testing.T) {
 	if in.FlightCommand != "103NOVDACBKK¥BG" {
 		t.Errorf("FlightCommand = %q, want %q", in.FlightCommand, "103NOVDACBKK¥BG")
 	}
-	wantClasses := []string{"H", "T", "B"}
+	wantClasses := []ClassRequest{{Row: 1, Class: "Q"}, {Row: 2, Class: "T"}, {Row: 1, Class: "B"}}
 	if len(in.BookingClasses) != len(wantClasses) {
 		t.Fatalf("BookingClasses = %v, want %v", in.BookingClasses, wantClasses)
 	}
@@ -103,7 +101,7 @@ func TestPromptBookingInput(t *testing.T) {
 }
 
 func TestPromptBookingInputSkipsEmptyValues(t *testing.T) {
-	li := startLineInput(strings.NewReader("\n\n103NOVDACBKK¥BG\n\nh t\n"))
+	li := startLineInput(strings.NewReader("\n\n103NOVDACBKK¥BG\n\n1q 2t\n"))
 	in, ok := promptBookingInput(li)
 	if !ok {
 		t.Fatal("promptBookingInput returned not ok")
@@ -111,8 +109,9 @@ func TestPromptBookingInputSkipsEmptyValues(t *testing.T) {
 	if in.FlightCommand != "103NOVDACBKK¥BG" {
 		t.Errorf("FlightCommand = %q", in.FlightCommand)
 	}
-	if len(in.BookingClasses) != 2 || in.BookingClasses[0] != "H" || in.BookingClasses[1] != "T" {
-		t.Errorf("BookingClasses = %v, want [H T]", in.BookingClasses)
+	want := []ClassRequest{{Row: 1, Class: "Q"}, {Row: 2, Class: "T"}}
+	if len(in.BookingClasses) != 2 || in.BookingClasses[0] != want[0] || in.BookingClasses[1] != want[1] {
+		t.Errorf("BookingClasses = %v, want %v", in.BookingClasses, want)
 	}
 }
 

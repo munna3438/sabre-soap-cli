@@ -7,9 +7,19 @@ import (
 	"strings"
 )
 
+// defaultAvailabilityRow is used when a class is entered without a row number.
+const defaultAvailabilityRow = 1
+
+// ClassRequest is an availability row plus the booking class to check on
+// that row, e.g. "1Q" means class Q on row 1 and "3H" means class H on row 3.
+type ClassRequest struct {
+	Row   int
+	Class string
+}
+
 type BookingInput struct {
 	FlightCommand  string
-	BookingClasses []string
+	BookingClasses []ClassRequest
 }
 
 type lineInput struct {
@@ -42,13 +52,13 @@ func promptBookingInput(li *lineInput) (*BookingInput, bool) {
 		return nil, false
 	}
 
-	var bookingClasses []string
+	var bookingClasses []ClassRequest
 	for {
-		raw, ok := promptRequired(li, "2. Booking classes (comma-separated, e.g. H,T,B)")
+		raw, ok := promptRequired(li, "2. Booking classes with row (comma-separated, e.g. 1Q,3H,2T)")
 		if !ok {
 			return nil, false
 		}
-		bookingClasses = parseClasses(raw)
+		bookingClasses = parseClassRequests(raw)
 		if len(bookingClasses) > 0 {
 			break
 		}
@@ -81,21 +91,47 @@ func normalizeFlightCommand(command string) string {
 	return strings.ToUpper(command)
 }
 
-func parseClasses(s string) []string {
-	var classes []string
-	seen := make(map[string]bool)
-	for _, r := range strings.ToUpper(s) {
-		if r < 'A' || r > 'Z' {
+// parseClassRequests parses row/class pairs such as "1Q,3H,2T" or "1Q 3H".
+// The row number comes first, then the class letter. A class without a
+// preceding number defaults to row 1 ("QTH" -> 1Q, 1T, 1H).
+// Duplicate row+class pairs are ignored; input order is preserved.
+func parseClassRequests(s string) []ClassRequest {
+	var requests []ClassRequest
+	seen := make(map[ClassRequest]bool)
+	upper := strings.ToUpper(s)
+
+	for i := 0; i < len(upper); i++ {
+		row := defaultAvailabilityRow
+		j := i
+		if j < len(upper) && upper[j] >= '0' && upper[j] <= '9' {
+			row = 0
+			for j < len(upper) && upper[j] >= '0' && upper[j] <= '9' {
+				row = row*10 + int(upper[j]-'0')
+				j++
+			}
+		}
+
+		if j >= len(upper) || upper[j] < 'A' || upper[j] > 'Z' {
 			continue
 		}
-		c := string(r)
-		if seen[c] {
-			continue
+
+		req := ClassRequest{Row: row, Class: string(upper[j])}
+		if !seen[req] {
+			seen[req] = true
+			requests = append(requests, req)
 		}
-		seen[c] = true
-		classes = append(classes, c)
+		i = j
 	}
-	return classes
+	return requests
+}
+
+// formatClassRequests renders requests as "1Q, 3H, 2T" for console output.
+func formatClassRequests(requests []ClassRequest) string {
+	parts := make([]string, len(requests))
+	for i, req := range requests {
+		parts[i] = fmt.Sprintf("%d%s", req.Row, req.Class)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func seatHOldCount(available int) int {

@@ -43,7 +43,7 @@ func TestSeatHoldSucceeded(t *testing.T) {
 }
 
 func TestBuildSeatHoldSuccessMessage(t *testing.T) {
-	in := &BookingInput{FlightCommand: "103NOVDACBKK¥BG", BookingClasses: []string{"H"}}
+	in := &BookingInput{FlightCommand: "103NOVDACBKK¥BG", BookingClasses: []ClassRequest{{Row: 1, Class: "H"}}}
 	msg := buildSeatHoldSuccessMessage(in, 1, "H", 6)
 	for _, want := range []string{
 		"103NOVDACBKK¥BG",
@@ -59,7 +59,7 @@ func TestBuildSeatHoldSuccessMessage(t *testing.T) {
 }
 
 func TestBuildSeatHoldFailureMessage(t *testing.T) {
-	in := &BookingInput{FlightCommand: "103NOVDACBKK¥BG", BookingClasses: []string{"H"}}
+	in := &BookingInput{FlightCommand: "103NOVDACBKK¥BG", BookingClasses: []ClassRequest{{Row: 1, Class: "H"}}}
 	msg := buildSeatHoldFailureMessage(in, 1, "H", 6)
 	for _, want := range []string{
 		"Seat Hold Failed (UC)",
