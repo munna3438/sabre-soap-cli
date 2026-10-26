@@ -135,7 +135,13 @@ func formatClassRequests(requests []ClassRequest) string {
 }
 
 func seatHOldCount(available int) int {
-	return 1
+	if available > 2 {
+		return available - 1
+	} else if available > 2 && available <= 8 {
+		return available - 2
+	} else {
+		return available
+	}
 }
 
 func buildSeatHoldCommand(row int, bookingClass string, seats int) string {

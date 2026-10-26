@@ -110,6 +110,12 @@ func main() {
 			}
 
 			if seatHoldStatus(holdResult.Response) == "UC" {
+				iResponse, err := sabre.SendCommandWithExistingSession(sabreCfg, session, "i")
+				if err != nil {
+					fmt.Printf("[Seat hold #%d] ERROR: %s\n", attempt, err)
+					continue
+				}
+				fmt.Println(iResponse)
 				fmt.Printf("[Seat hold #%d] Seat NOT held (UC). Retrying...\n", attempt)
 				if !ucNotified {
 					ucNotified = true
@@ -123,7 +129,6 @@ func main() {
 		if seatHeld {
 			break
 		}
-
 		// Seat hold failed after all attempts: re-run availability search
 		// instead of going straight to the terminal.
 		fmt.Printf("Seat NOT held after %d attempts. Re-checking availability...\n", maxSeatHoldAttempts)
