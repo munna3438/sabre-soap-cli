@@ -139,5 +139,5 @@ func seatHOldCount(available int) int {
 }
 
 func buildSeatHoldCommand(row int, bookingClass string, seats int) string {
-	return fmt.Sprintf("0%d%s%d", row, strings.ToUpper(strings.TrimSpace(bookingClass)), seats)
+	return fmt.Sprintf("0%d%s%d", seats, strings.ToUpper(strings.TrimSpace(bookingClass)), row)
 }
