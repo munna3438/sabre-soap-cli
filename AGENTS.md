@@ -15,7 +15,7 @@ A Go (1.21) CLI tool on branch `sabre_seat_hold_row` that:
 2. Creates a Sabre SOAP session.
 3. Repeatedly sends the flight availability command until **any** requested class is open on the **first availability row only** (`1BG`) — class letter + digit `1`-`9`.
 4. Sends the seat-hold command `0<ROW><CLASS><SEATS>` for the matched class and row. Seats: 1-2 available → hold that many; 3+ available → hold one less (e.g. H7 → `01H6`).
-5. On `SS` → sends a Telegram success message. On `UC` → sends a Telegram failure message (once) and retries the hold; after 2 failed attempts it continues to the terminal.
+5. On `SS` → sends a Telegram success message and moves to the terminal. On `UC` → sends a Telegram failure message (once) and goes back to step 3 (availability search); the same hold command is never retried.
 6. Drops into an interactive Sabre terminal, then closes the session.
 
 This branch intentionally has no Biman GraphQL polling or keep-alive logic.
@@ -49,9 +49,9 @@ This branch intentionally has no Biman GraphQL polling or keep-alive logic.
 - Availability response display: `showAvailabilityResponse` saves the block's line count and redraws it in place using ANSI `\033[<n>A` + `\033[J`, so each attempt replaces the previous response instead of appending. `enableVirtualTerminal()` (Windows) is required for the console to process those sequences.
 - Availability parsing: `availabilityRowRe` matches row starts like ` 1BG`, ` 3PG/SQ`, ` 5H1/SG`, `10BG`; continuation lines belong to the first row until the next row starts, then parsing stops. `classAvailabilityRe` matches only a single letter followed by `1`-`9` (so `T4` is open, `TC`/`T0`/`UC` are not). Classes on rows 2+ are never considered. Airline codes such as `5H1/SG` are not treated as class availability. If multiple requested classes are open, the one earliest in the input list wins.
 - Seat-hold result: `seatHoldStatus` (seathold.go) matches `\b(SS|UC)\d` in the response. Only `SS` counts as success; `seatHoldSucceeded` gates the Telegram notification.
-- Seat-hold retry: `maxSeatHoldAttempts = 2` (initial + one retry, no delay). First `UC` sends the failure Telegram once; retries do not repeat it. If the second attempt also fails (UC/unknown/error), it prints `Seat NOT held after 2 attempts` and opens the Sabre terminal.
+- **UC → re-search, no hold retry**: each round runs the availability loop, then sends the seat-hold command **exactly once**. On `SS` → success Telegram, then the terminal. On `UC`/unknown/error it prints `Seat NOT held (UC). Re-searching availability...` / `Unknown seat-hold response. Re-searching availability...` and goes **back to the availability loop** — the same hold command is never re-sent. The failure Telegram is sent once per run (`ucNotified` flag). `responseLines` is reset to 0 after a failed hold so the next availability display is appended instead of redrawing over the seat-hold output. There is no `maxSeatHoldAttempts` const any more; the outer `for !seatHeld` loop is unbounded until `SS` or Ctrl+C.
 - Telegram: `buildSeatHoldSuccessMessage` (flight command, class, seats, line, command) is sent on `SS`; `buildSeatHoldFailureMessage` (`❌ Seat Hold Failed (UC)`) is sent on the first `UC`. Both go through `notifyTelegram` → `sendTelegramMessage` (`https://api.telegram.org/bot<token>/sendMessage`, plain text, 10s timeout). Skipped when the token/chat ID are empty; send errors are printed and never stop the flow.
-- Flow order in `main.go`: prompt → create session → availability loop → send seat-hold command → interactive terminal → close session.
+- Flow order in `main.go`: prompt → create session → repeat (availability loop → one seat-hold command) until `SS` → interactive terminal → close session.
 - Session expiry auto-renew: `isSessionInvalid()` in `sabre/command.go` checks for session/token keywords, recreates the session, re-sends the command, and sets `SessionRetried = true`. Do not change this without reason.
 - Stdin handling: channel-based `lineInput` (owning goroutine scans `os.Stdin`); prompts and `interactiveTerminal` read via `readLine()`.
 - Interactive terminal: `exit`/`quit` ends it; `\` in typed commands is converted to `¥`.
@@ -81,7 +81,8 @@ gofmt -w .
 - Branch: `sabre_seat_hold_row`
 - Last commit: `e5e538b` "before re-search run I command and set hold command run 2 time if come uc"
 - Uncommitted changes: stripped Biman/monitoring/retry code; new flow (flight command + multiple classes → availability loop on first row → `0<row><matched CLASS><seats>` → Telegram on `SS` → terminal). Deleted `monitor.go`, `monitor_test.go`; added `input.go`, `input_test.go`, `availability.go`, `availability_test.go`, `seathold.go`, `seathold_test.go`, `telegram.go`, `console_windows.go`, `console_other.go`.
-- Live-debug user edits: retry `time.Sleep` calls and the `availabilityRetryDelay` const are removed from `main.go`; `seatHoldCount` was renamed to `seatHOldCount` in `input.go` and must keep that name.
+- Latest change: seat-hold `UC` no longer retries the hold command; it returns to the availability search. Removed `maxSeatHoldAttempts` from `seathold.go`.
+- Live-debug user edits: retry `time.Sleep` calls and the `availabilityRetryDelay` const are removed from `main.go`; `seatHoldCount` was renamed to `seatHOldCount` in `input.go` and must keep that name. `seatHOldCount` currently returns `1` for every input, so `TestSeatHoldCount` in `input_test.go` fails (pre-existing, unrelated to the UC change) — restore the documented rule or update the test.
 - Next planned step: test the simplified flow against a live Sabre session, then commit.
 
 ## Completed Work
