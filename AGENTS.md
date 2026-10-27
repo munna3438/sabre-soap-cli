@@ -14,7 +14,7 @@ A Go (1.21) CLI tool on branch `sabre_multi_row_single_seat` that:
 1. Prompts for two inputs: a Sabre flight availability command (e.g. `103NOVDACBKK¥BG`) and one or more booking classes with the availability row to check (e.g. `1Q,3H,2T`).
 2. Creates a Sabre SOAP session.
 3. Repeatedly sends the flight availability command until **any** requested class is open on **its requested row** — row number + class letter (`1Q` = class Q on row 1, `3H` = class H on row 3).
-4. Sends the seat-hold command `0<ROW><CLASS><SEATS>` for the matched class and row. Currently always holds 1 seat (`seatHOldCount` returns 1).
+4. Sends the seat-hold command `0<SEATS><CLASS><ROW>` for the matched class and row. Currently always holds 1 seat (`seatHOldCount` returns 1).
 5. On `SS` → sends a Telegram success message. On `UC` → sends a Telegram failure message (once) and retries the hold (2 attempts total). If the hold still fails after 2 attempts, it loops back to re-run the availability search and retry — it does **not** go straight to the terminal.
 6. Drops into an interactive Sabre terminal, then closes the session.
 
@@ -43,7 +43,7 @@ This branch intentionally has no Biman GraphQL polling or keep-alive logic.
 
 ## Key Code Details
 - Input 1 (`FlightCommand`): raw Sabre availability command. `normalizeFlightCommand` trims it, converts `\` to `¥`, and uppercases it.
-- Input 2 (`BookingClasses []ClassRequest`): parsed by `parseClassRequests` from `1Q,3H,2T` (row first, then class letter; no number → row 1); deduped by row+class and uppercased. `formatClassRequests` renders it back as `1Q, 3H, 2T` for console output. The seat-hold command uses the matched class and row: `0<row><CLASS><seats>`.
+- Input 2 (`BookingClasses []ClassRequest`): parsed by `parseClassRequests` from `1Q,3H,2T` (row first, then class letter; no number → row 1); deduped by row+class and uppercased. `formatClassRequests` renders it back as `1Q, 3H, 2T` for console output. The seat-hold command uses the matched class and row: `0<SEATS><CLASS><ROW>`.
 - Seat count: `findAvailableClass` returns the digit after the matched class (1-9) on the requested row. `seatHOldCount` (user-named; keep the spelling) currently returns `1` for every availability (single-seat hold).
 - Availability loop in `main.go`: send flight command → `findAvailableClass` (row-aware) → if none of the requested class+row pairs is open, immediately send again; on found, continue to the seat-hold command. If the seat hold fails after `maxSeatHoldAttempts` (2), the flow loops back to re-run availability and retry instead of opening the terminal. There is no retry delay (user removed it).
 - Availability response display: `showAvailabilityResponse` saves the block's line count and redraws it in place using ANSI `\033[<n>A` + `\033[J`, so each attempt replaces the previous response instead of appending. `enableVirtualTerminal()` (Windows) is required for the console to process those sequences.

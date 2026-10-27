@@ -13,10 +13,10 @@ func TestBuildSeatHoldCommand(t *testing.T) {
 		want  string
 	}{
 		{1, "h", 1, "01H1"},
-		{1, "h", 2, "01H2"},
-		{1, "h", 6, "01H6"},
-		{2, "T", 8, "02T8"},
-		{10, "b", 1, "010B1"},
+		{1, "h", 2, "02H1"},
+		{1, "h", 6, "06H1"},
+		{2, "T", 8, "08T2"},
+		{10, "b", 1, "01B10"},
 	}
 	for _, c := range cases {
 		if got := buildSeatHoldCommand(c.row, c.class, c.seats); got != c.want {

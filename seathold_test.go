@@ -50,7 +50,7 @@ func TestBuildSeatHoldSuccessMessage(t *testing.T) {
 		"Booking Class: H",
 		"Seats Held: 6",
 		"Availability Line: 1",
-		"Command: 01H6",
+		"Command: 06H1",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message = %q, want it to contain %q", msg, want)
@@ -66,7 +66,7 @@ func TestBuildSeatHoldFailureMessage(t *testing.T) {
 		"103NOVDACBKK¥BG",
 		"Booking Class: H",
 		"Seats Requested: 6",
-		"Command: 01H6",
+		"Command: 06H1",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message = %q, want it to contain %q", msg, want)
