@@ -1,3 +1,4 @@
 .env
 *.exe
 PLAN.md
+/assets

@@ -52,10 +52,6 @@ func main() {
 		in := promptBookingInput(li)
 		fmt.Println()
 
-		flightCommand := buildFlightCommand(in.From, in.To, in.Date)
-		fmt.Printf("Flight command : %s\n", flightCommand)
-		fmt.Println()
-
 		fmt.Print("Creating Sabre session...")
 		session, err := sabre.CreateSession(sabreCfg.Endpoint, sabreCfg.Username, sabreCfg.Password, sabreCfg.PCC, sabreCfg.Domain, sabreCfg.IsLive)
 		if err != nil {
@@ -67,11 +63,11 @@ func main() {
 		fmt.Printf("Session: %s\n", session.ConversationID)
 		fmt.Println()
 
-		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
+		fmt.Printf("Monitoring for booking class in background...\n")
 
 		held := false
 		for {
-			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
+			found, foundClass, foundDate, tripType := waitForClass(cfg, sabreCfg, in, session, li)
 			if !found {
 				restart := postCancelMenu(sabreCfg, session, li)
 				if restart {
@@ -81,9 +77,24 @@ func main() {
 				os.Exit(0)
 			}
 
-			seatHoldCommand := buildSeatHoldCommand(foundClass, in.Row)
+			// Use the matched date for both the availability command and telegram
+			in.SearchingDate = foundDate
 
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
+			flightCommand := ""
+			if tripType == "return" {
+				flightCommand = buildFlightCommand(in.To, in.From, foundDate)
+			} else {
+				flightCommand = buildFlightCommand(in.From, in.To, foundDate)
+			}
+			fmt.Printf("Flight availability command : %s\n", flightCommand)
+			fmt.Println()
+			if _, err := sabre.SendCommandWithExistingSession(sabreCfg, session, flightCommand); err != nil {
+				fmt.Printf("[flight availability] ERROR: %s\n", err)
+			}
+
+			seatHoldCommand := buildSeatHoldCommand(foundClass)
+
+			if trySeatHold(cfg, sabreCfg, session, in, tripType, seatHoldCommand, foundClass) {
 				held = true
 				break
 			}

@@ -18,23 +18,35 @@ import (
 )
 
 type BookingInput struct {
-	From           string
-	To             string
+	TripType int
+	From     string
+	To       string
+
 	BookingClass   string
 	BookingClasses []string
-	Row            string
-	Date           string
+	SearchingDate  string
+	SearchFrom     string
+	SearchTo       string
+
+	// return
+	RBookingClass   string
+	RBookingClasses []string
+	RSearchingDate  string
+	RSearchFrom     string
+	RSearchTo       string
 }
 
 type airSearchResponse struct {
 	Data struct {
 		BookingAirSearch struct {
 			OriginalResponse struct {
-				UnbundledOffers [][]struct {
-					ItineraryPart []struct {
+				UnbundledAlternateDateOffers [][]struct {
+					DepartureDates []string `json:"departureDates"`
+					Status         string   `json:"status"`
+					ItineraryPart  []struct {
 						BookingClass string `json:"bookingClass"`
 					} `json:"itineraryPart"`
-				} `json:"unbundledOffers"`
+				} `json:"unbundledAlternateDateOffers"`
 			} `json:"originalResponse"`
 		} `json:"bookingAirSearch"`
 	} `json:"data"`
@@ -62,21 +74,41 @@ func (li *lineInput) readLine() (string, bool) {
 }
 
 func promptBookingInput(li *lineInput) *BookingInput {
-	fmt.Println("=== FLIGHT MONITOR ===")
 	fmt.Println("Enter flight details:")
 	in := &BookingInput{}
-	in.From = promptValue(li, "1. From (e.g. DAC)", "")
-	in.To = promptValue(li, "2. To (e.g. BKK)", "")
-	in.BookingClass = promptValue(li, "3. Booking class (e.g. B or B,C,D)", "")
-	in.Row = promptValue(li, "4. Row (e.g 1)", "")
-	in.Date = promptValue(li, "5. Date (YYYY-MM-DD)", "")
-	in.From = strings.ToUpper(in.From)
-	in.To = strings.ToUpper(in.To)
-	in.BookingClass = strings.ToUpper(in.BookingClass)
+
+	// Trip type (re-ask until valid)
+	for {
+		v := promptValue(li, "Trip type (1 = One way, 2 = Round trip)", "")
+		if v == "1" || v == "2" {
+			in.TripType = int(v[0] - '0')
+			break
+		}
+		fmt.Println("Invalid input. Please enter 1 or 2.")
+	}
+
+	in.From = strings.ToUpper(promptValue(li, "1. From (e.g. DAC)", ""))
+	in.To = strings.ToUpper(promptValue(li, "2. To (e.g. BKK)", ""))
+
+	// Oneway / departure
+	in.BookingClass = strings.ToUpper(promptValue(li, "3. Departure class (e.g. B or B,C,D)", ""))
 	in.BookingClasses = splitClasses(in.BookingClass)
+	in.SearchingDate = promptValue(li, "4. Departure Searching date (YYYY-MM-DD)", "")
+	in.SearchFrom = promptValue(li, "5. Departure Filter From (YYYY-MM-DD)", "")
+	in.SearchTo = promptValue(li, "6. Departure Filter To (YYYY-MM-DD)", "")
+
+	// Return (only for round trip)
+	if in.TripType == 2 {
+		fmt.Println("")
+		in.RBookingClass = strings.ToUpper(promptValue(li, "7. Return class (e.g. B or B,C,D)", ""))
+		in.RBookingClasses = splitClasses(in.RBookingClass)
+		in.RSearchingDate = promptValue(li, "8. Return Searching date (YYYY-MM-DD)", "")
+		in.RSearchFrom = promptValue(li, "9. Return Filter From (YYYY-MM-DD)", "")
+		in.RSearchTo = promptValue(li, "10. Return Filter To (YYYY-MM-DD)", "")
+	}
+
 	return in
 }
-
 func splitClasses(s string) []string {
 	var out []string
 	for _, c := range strings.Split(s, ",") {
@@ -106,23 +138,33 @@ func (in *BookingInput) fetchAirSearch(cfg *Config) (*airSearchResponse, error) 
 }
 
 func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error) {
+
+	itineraryParts := []interface{}{
+		map[string]interface{}{
+			"from": map[string]interface{}{"useNearbyLocations": false, "code": in.From},
+			"to":   map[string]interface{}{"useNearbyLocations": false, "code": in.To},
+			"when": map[string]interface{}{"date": in.SearchingDate},
+		},
+	}
+	if in.TripType == 2 {
+		itineraryParts = append(itineraryParts, map[string]interface{}{
+			"from": map[string]interface{}{"useNearbyLocations": false, "code": in.To},
+			"to":   map[string]interface{}{"useNearbyLocations": false, "code": in.From},
+			"when": map[string]interface{}{"date": in.RSearchingDate},
+		})
+	}
+
 	payload := map[string]interface{}{
 		"operationName": "bookingAirSearch",
 		"variables": map[string]interface{}{
 			"airSearchInput": map[string]interface{}{
-				"cabinClass":   "Economy",
-				"awardBooking": false,
-				"promoCodes":   []string{""},
-				"searchType":   "BRANDED",
-				"itineraryParts": []interface{}{
-					map[string]interface{}{
-						"from": map[string]interface{}{"useNearbyLocations": false, "code": in.From},
-						"to":   map[string]interface{}{"useNearbyLocations": false, "code": in.To},
-						"when": map[string]interface{}{"date": in.Date},
-					},
-				},
-				"passengers":  map[string]interface{}{"ADT": 1},
-				"pointOfSale": "BD",
+				"cabinClass":     "Economy",
+				"awardBooking":   false,
+				"promoCodes":     []string{""},
+				"searchType":     "CALENDAR30",
+				"itineraryParts": itineraryParts,
+				"passengers":     map[string]interface{}{"ADT": 1},
+				"pointOfSale":    "BD",
 			},
 		},
 		"extensions": map[string]interface{}{},
@@ -151,44 +193,108 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 	}
 	defer resp.Body.Close()
 
+	// Read the raw response body once
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read biman response: %w", err)
+	}
+
+	// Save the raw API response exactly as received
+	// dir := "assets/sabre"
+	// if err := os.MkdirAll(dir, 0755); err != nil {
+	// 	return nil, fmt.Errorf("create directory: %w", err)
+	// }
+
+	// filename := fmt.Sprintf(
+	// 	"biman_%s_%s.json",
+	// 	in.SearchingDate,
+	// 	time.Now().Format("20060102_150405.000000000"),
+	// )
+	// filePath := filepath.Join(dir, filename)
+
+	// if err := os.WriteFile(filePath, rawBody, 0644); err != nil {
+	// 	return nil, fmt.Errorf("write JSON file: %w", err)
+	// }
+
+	// Parse from the same bytes
 	var result airSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(rawBody, &result); err != nil {
 		return nil, fmt.Errorf("biman response parse: %w", err)
 	}
 
-	// jsonContent, err := os.ReadFile("assets/sabre/get_data_1785580559.json")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("read test JSON: %w", err)
-	// }
-
-	// var result airSearchResponse
-
-	// if err := json.Unmarshal(jsonContent, &result); err != nil {
-	// 	return nil, fmt.Errorf("parse test JSON: %w", err)
-	// }
-
 	return &result, nil
+
 }
 
-func (in *BookingInput) bookingClassFound(resp *airSearchResponse) string {
+func parseRange(from, to string) (time.Time, time.Time, bool) {
+	f, err1 := time.Parse("2006-01-02", from)
+	t, err2 := time.Parse("2006-01-02", to)
+	if err1 != nil || err2 != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	return f, t, true
+}
+
+func (in *BookingInput) bookingClassFound(resp *airSearchResponse) (string, string, string) {
 	if resp == nil {
-		return ""
+		return "", "", ""
 	}
-	offers := resp.Data.BookingAirSearch.OriginalResponse.UnbundledOffers
-	if len(offers) == 0 || len(offers[0]) == 0 {
-		return ""
+	offers := resp.Data.BookingAirSearch.OriginalResponse.UnbundledAlternateDateOffers
+	if len(offers) == 0 {
+		return "", "", ""
 	}
-	for _, offer := range offers[0] {
-		if len(offer.ItineraryPart) > 0 {
+
+	fromDate, toDate, useRange := parseRange(in.SearchFrom, in.SearchTo)
+	rFromDate, rToDate, rUseRange := parseRange(in.RSearchFrom, in.RSearchTo)
+
+	for tripIndex, dateGroup := range offers {
+		isReturn := tripIndex == 1 && in.TripType == 2
+
+		classes := in.BookingClasses
+		kind := "oneway"
+		if isReturn {
+			classes = in.RBookingClasses
+			kind = "return"
+		}
+
+		for _, offer := range dateGroup {
+			if len(offer.DepartureDates) == 0 || len(offer.ItineraryPart) == 0 {
+				continue
+			}
+
+			// Keep only the date part in case the API sends a timestamp
+			ds := offer.DepartureDates[0]
+			if len(ds) > 10 {
+				ds = ds[:10]
+			}
+			offerDate, err := time.Parse("2006-01-02", ds)
+			if err != nil {
+				continue
+			}
+
+			// Date range filter for this leg
+			if isReturn {
+				if rUseRange && (offerDate.Before(rFromDate) || offerDate.After(rToDate)) {
+					continue
+				}
+			} else if useRange && (offerDate.Before(fromDate) || offerDate.After(toDate)) {
+				continue
+			}
+
+			// Only available offers
+			if offer.Status != "" && offer.Status != "AVAILABLE" {
+				continue
+			}
+
 			bc := offer.ItineraryPart[0].BookingClass
-			for _, want := range in.BookingClasses {
+			for _, want := range classes {
 				if bc == want {
-					return want
+					return want, ds, kind
 				}
 			}
 		}
 	}
-	return ""
+	return "", "", ""
 }
 
 func buildFlightCommand(from, to, date string) string {
@@ -199,8 +305,8 @@ func buildFlightCommand(from, to, date string) string {
 	return strings.ToUpper(fmt.Sprintf("1%s%s%s¥BG", dayMonth, from, to))
 }
 
-func buildSeatHoldCommand(bookingClass string, row string) string {
-	return "01" + strings.ToUpper(bookingClass) + row
+func buildSeatHoldCommand(bookingClass string) string {
+	return "01" + strings.ToUpper(bookingClass) + "1"
 }
 
 var seatHoldStatusRe = regexp.MustCompile(`\b(SS|UC)\d`)
@@ -225,8 +331,8 @@ func ExtractFlightNumber(response string) string {
 
 const maxSeatHoldAttempts = 2
 
-func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
-	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass, "")
+func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, tripType, seatHoldCommand, foundClass string) bool {
+	ucMessage, successMessage := buildSeatHoldMessages(tripType, in, foundClass, "")
 	ucNotified := false
 	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
 		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
@@ -241,10 +347,10 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 		}
 		flightNum := ExtractFlightNumber(respText)
 		if ucMessage == "" && successMessage == "" {
-			ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+			ucMessage, successMessage = buildSeatHoldMessages(tripType, in, foundClass, flightNum)
 		} else {
 			if flightNum != "" {
-				ucMessage, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+				ucMessage, successMessage = buildSeatHoldMessages(tripType, in, foundClass, flightNum)
 			}
 		}
 
@@ -252,7 +358,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 		case "SS":
 			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
 			if flightNum != "" {
-				_, successMessage = buildSeatHoldMessages(in, foundClass, flightNum)
+				_, successMessage = buildSeatHoldMessages(tripType, in, foundClass, flightNum)
 			}
 			if err := sendTelegramMessage(cfg, successMessage); err != nil {
 				fmt.Printf("[telegram] ERROR: %s\n", err)
@@ -263,7 +369,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 			if !ucNotified {
 				ucNotified = true
 				if flightNum != "" {
-					ucMessage, _ = buildSeatHoldMessages(in, foundClass, flightNum)
+					ucMessage, _ = buildSeatHoldMessages(tripType, in, foundClass, flightNum)
 				}
 				if err := sendTelegramMessage(cfg, ucMessage); err != nil {
 					fmt.Printf("[telegram] ERROR: %s\n", err)
@@ -276,16 +382,12 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 	return false
 }
 
-func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, string) {
+func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, li *lineInput) (bool, string, string, string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		keepAliveLoop(ctx, sabreCfg, session, flightCommand, cfg.SabrePollMinutes)
-	}()
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		listenForCancel(ctx, cancel, li)
@@ -296,6 +398,8 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 	count := 0
 	found := false
 	foundClass := ""
+	foundDate := ""
+	tripType := ""
 	for {
 		if ctx.Err() != nil {
 			fmt.Println("\rMonitoring stopped by user.")
@@ -307,9 +411,12 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 			fmt.Printf("\r[Request #%d] ERROR: %s", count, err)
 			continue
 		}
-		if fc := in.bookingClassFound(resp); fc != "" {
+		fc, fd, ft := in.bookingClassFound(resp)
+		if fc != "" {
 			found = true
 			foundClass = fc
+			foundDate = fd
+			tripType = ft
 			break
 		}
 		fmt.Printf("\r[Request #%d] re-checking...", count)
@@ -318,7 +425,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 
 	cancel()
 	wg.Wait()
-	return found, foundClass
+	return found, foundClass, foundDate, tripType
 }
 
 func listenForCancel(ctx context.Context, cancel context.CancelFunc, li *lineInput) {

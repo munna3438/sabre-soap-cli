@@ -29,12 +29,18 @@ func sendTelegramMessage(cfg *Config, text string) error {
 	return nil
 }
 
-func buildSeatHoldMessages(in *BookingInput, foundClass, flightNumber string) (ucMessage, successMessage string) {
+func buildSeatHoldMessages(tripType string, in *BookingInput, foundClass, flightNumber string) (ucMessage, successMessage string) {
 	fn := flightNumber
 	if fn == "" {
 		fn = "-"
 	}
-	successMessage = fmt.Sprintf("✅ Successfully Seat Blocked. \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nFlight Number: %s", in.From, in.To, in.Date, foundClass, fn)
-	ucMessage = fmt.Sprintf("❌ Seat Not Blocked (UC) \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nFlight Number: %s", in.From, in.To, in.Date, foundClass, fn)
+	From := in.From
+	To := in.To
+	if tripType == "return" {
+		From = in.To
+		To = in.From
+	}
+	successMessage = fmt.Sprintf("✅ Successfully Seat Blocked. \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nFlight Number: %s", From, To, in.SearchingDate, foundClass, fn)
+	ucMessage = fmt.Sprintf("❌ Seat Not Blocked (UC) \nFrom: %s\nTo: %s\nDate: %s\nBooking Class: %s\nFlight Number: %s", From, To, in.SearchingDate, foundClass, fn)
 	return ucMessage, successMessage
 }

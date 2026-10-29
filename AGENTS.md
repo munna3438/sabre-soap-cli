@@ -11,7 +11,7 @@
 
 ## Project Overview
 A Go (1.21) CLI tool that:
-1. Prompts for flight details (From, To, Booking class, Date).
+1. Prompts for flight details (From, To, BookingClass (multiple, comma-separated), SearchingDate, SearchFrom, SearchTo).
 2. Creates a Sabre SOAP session.
 3. Polls a Biman Airlines GraphQL API (`bookingAirSearch`) in the background, watching for a specific booking class to become available.
 4. While polling, periodically sends a Sabre flight command via the session (keep-alive so the session doesn't expire).
@@ -41,7 +41,7 @@ Branches: work is done on `dev_munna` (current).
 - Seat-hold retry: `trySeatHold` (monitor.go) sends the seat-hold command up to 2 times. `seatHoldStatus` parses the Sabre screen text: `\b(SS|UC)\d` → `SS` = seat held (success), `UC` = not held. On `UC`/error/unknown it retries with no delay; after 2 failed attempts, main.go sends the Sabre `I` command (clear screen) then loops back into `waitForClass` (re-searches Biman Bangladesh) and keeps cycling until `SS` or user quits (`q`).
 - Telegram: `sendTelegramMessage` (telegram.go) POSTs to `https://api.telegram.org/bot<token>/sendMessage` (parse_mode HTML). `buildSeatHoldMessages` builds two multi-line messages (`From:`/`To:`/`Date:`/`Booking Class:`) from `BookingInput` + found class: success = blocked class only, UC = all input classes comma-joined (`B,C,D`). On `SS` the success message is sent once; on the **first** `UC` of a seat-hold round the UC message is sent once (not per retry). Sending is skipped when `SABRE_TELEGRAM_BOT_TOKEN`/`SABRE_TELEGRAM_CHAT_ID` are empty.
 - Polling: `fetchAirSearch` calls `callBimanGraphql` (live GraphQL POST to `BIMAN_GRAPHQL_URL`; the file-read from `assets/sabre/get_data_1785580559.json` is commented out). Poll loop has NO sleep and NO per-check output (removed for speed); on class match it breaks immediately and runs the seat-hold. The GraphQL query cannot be shrunk by selecting subfields of `originalResponse` (schema returns 400 — it is opaque/scalar).
-- Booking-class detection parses `data.bookingAirSearch.originalResponse.unbundledOffers[0][].itineraryPart[0].bookingClass`.
+- Booking-class detection iterates `unbundledAlternateDateOffers[][]` and filters offers whose `departureDates[0]` falls within `[SearchFrom, SearchTo]` (when both set), then matches `itineraryPart[].bookingClass` against `BookingClasses`; only `status == "AVAILABLE"` offers are considered. `bookingClassFound` returns `(foundClass, foundDate)`. On match, `main.go` runs the Sabre flight availability command `1<DDMON><FROM><TO>¥BG` using the matched date, then runs the seat-hold command `01<CLASS>1`.
 - Keep-alive interval: `SABRE_POLL_MINUTES` (default 10). Retry re-session: handled automatically when session expired.
 - Session expiry auto-renew: `isSessionInvalid()` in `sabre/command.go` checks for session/token keywords, then recreates the session and re-sends the command; sets `SessionRetried = true`.
 - Stdin handling: channel-based `lineInput` (owning goroutine scans `os.Stdin`); `promptBookingInput` / `interactiveTerminal` / `postCancelMenu` / `listenForCancel` all read via `readLine()`. Typing `q` while monitoring cancels polling; `postCancelMenu` offers `[1] New search` (new session), `[2] Sabre terminal` (reuses open session), `[3] Exit`.
@@ -80,6 +80,8 @@ gofmt -w .
   - Added seat-hold retry loop: up to 2 attempts on `UC`, then re-search Biman and cycle until `SS` or `q` (`monitor.go`, `main.go`, `monitor_test.go`)
   - Before re-search after failed seat hold, main.go sends the Sabre `I` command to clear the screen (`main.go`)
   - `assets/sabre/get_data_1785580559.json` modified
+  - **DONE: Switched booking-class parsing from `unbundledOffers` to `unbundledAlternateDateOffers` per `assets/sabre/biman_result.json`; renamed `Date` → `SearchingDate`; updated input prompts (`monitor.go`, `main.go`, `telegram.go`); searchType already `CALENDAR30` in `callBimanGraphql`. Fixed monitor_test.go call sites ( flightNumber arg, 5-line prompt input) so tests compile/pass.**
+  - **DONE: Added date-range filtering (`SearchFrom`/`SearchTo` inputs) — `bookingClassFound` filters `unbundledAlternateDateOffers` offers by `departureDates[0]` within range and matches `bookingClass` against `BookingClasses`; only `AVAILABLE` offers considered. Returns `(foundClass, foundDate)`. `main.go` runs Sabre flight availability command on match date, then seat-hold command. Added date-range test case in `monitor_test.go`.**
 - Next planned step: (fill in when decided — e.g. commit staged work, add error handling, new features)
 
 ## Completed Work

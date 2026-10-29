@@ -7,34 +7,48 @@ import (
 
 func TestBookingClassFound(t *testing.T) {
 	response := &airSearchResponse{}
-	response.Data.BookingAirSearch.OriginalResponse.UnbundledOffers = [][]struct {
-		ItineraryPart []struct {
+	response.Data.BookingAirSearch.OriginalResponse.UnbundledAlternateDateOffers = [][]struct {
+		DepartureDates []string `json:"departureDates"`
+		Status         string   `json:"status"`
+		ItineraryPart  []struct {
 			BookingClass string `json:"bookingClass"`
 		} `json:"itineraryPart"`
 	}{
 		{
-			{ItineraryPart: []struct {
+			{DepartureDates: []string{"2026-08-01"}, Status: "AVAILABLE", ItineraryPart: []struct {
 				BookingClass string `json:"bookingClass"`
 			}{{BookingClass: "B"}}},
-			{ItineraryPart: []struct {
+			{DepartureDates: []string{"2026-08-05"}, Status: "AVAILABLE", ItineraryPart: []struct {
 				BookingClass string `json:"bookingClass"`
 			}{{BookingClass: "L"}}},
 		},
 	}
 
-	in := &BookingInput{BookingClasses: []string{"B", "L"}}
-	if in.bookingClassFound(response) != "B" {
-		t.Error("expected class B to be found")
+	in := &BookingInput{BookingClasses: []string{"B", "L"}, SearchFrom: "2026-08-01", SearchTo: "2026-08-10"}
+	class, date := in.bookingClassFound(response)
+	if class != "B" || date != "2026-08-01" {
+		t.Errorf("expected class B date 2026-08-01, got %s %s", class, date)
 	}
 
 	in.BookingClasses = []string{"Z"}
-	if in.bookingClassFound(response) != "" {
+	class, date = in.bookingClassFound(response)
+	if class != "" || date != "" {
 		t.Error("expected class Z to NOT be found")
 	}
 
 	in.BookingClasses = []string{"L", "Z"}
-	if in.bookingClassFound(response) != "L" {
-		t.Error("expected class L to be found")
+	class, date = in.bookingClassFound(response)
+	if class != "L" || date != "2026-08-05" {
+		t.Errorf("expected class L date 2026-08-05, got %s %s", class, date)
+	}
+
+	// Out of range: class B is on 2026-08-01, outside 2026-08-20..2026-08-31
+	in.BookingClasses = []string{"B", "L"}
+	in.SearchFrom = "2026-08-20"
+	in.SearchTo = "2026-08-31"
+	class, date = in.bookingClassFound(response)
+	if class != "" || date != "" {
+		t.Error("expected no class found when out of date range")
 	}
 }
 
@@ -78,9 +92,9 @@ func TestBuildSeatHoldMessages(t *testing.T) {
 		From:           "DAC",
 		To:             "BKK",
 		BookingClasses: []string{"B", "C", "D"},
-		Date:           "2026-08-20",
+		SearchingDate:  "2026-08-20",
 	}
-	ucMsg, okMsg := buildSeatHoldMessages(in, "B")
+	ucMsg, okMsg := buildSeatHoldMessages(in, "B", "")
 
 	if !strings.Contains(ucMsg, "Booking Class: B") {
 		t.Errorf("uc message = %q, want to contain %q", ucMsg, "Booking Class: B")
@@ -95,9 +109,9 @@ func TestBuildSeatHoldMessages(t *testing.T) {
 }
 
 func TestPromptInput(t *testing.T) {
-	li := startLineInput(strings.NewReader("dac\nbkk\nb,c,d\n2026-08-20\n"))
+	li := startLineInput(strings.NewReader("dac\nbkk\nb,c,d\n1\n2026-08-20\n2026-08-01\n2026-08-31\n"))
 	in := promptBookingInput(li)
-	if in.From != "DAC" || in.To != "BKK" || in.BookingClass != "B,C,D" || in.Date != "2026-08-20" {
+	if in.From != "DAC" || in.To != "BKK" || in.BookingClass != "B,C,D" || in.Row != "1" || in.SearchingDate != "2026-08-20" || in.SearchFrom != "2026-08-01" || in.SearchTo != "2026-08-31" {
 		t.Errorf("unexpected input parsed: %+v", in)
 	}
 	wantClasses := []string{"B", "C", "D"}
