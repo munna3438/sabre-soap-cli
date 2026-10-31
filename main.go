@@ -193,10 +193,10 @@ func printCommandResult(command string, result *sabre.CommandResult) {
 
 func banner() string {
 	return `
-╔══════════════════════════════════════════╗
-║         SABRE TERMINAL v1.1              ║
-║     Add Extra Seat hold command          ║
-╚══════════════════════════════════════════╝
+╔═══════════════════════════════════════════════╗
+║       			Biman TERMINAL v1.1               ║
+║     Add Extra Seat command specific row       ║
+╚═══════════════════════════════════════════════╝
 `
 }
 
