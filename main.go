@@ -173,10 +173,10 @@ func printCommandResult(command string, result *sabre.CommandResult) {
 
 func banner() string {
 	return `
-╔══════════════════════════════════════════╗
-║         SABRE TERMINAL v1.0              ║
-║    Interactive Sabre SOAP Terminal       ║
-╚══════════════════════════════════════════╝
+╔════════════════════════════╗
+║       Biman site v1.0      ║
+║         single seat        ║
+╚════════════════════════════╝
 `
 }
 
