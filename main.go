@@ -67,7 +67,7 @@ func main() {
 
 		held := false
 		for {
-			found, foundClass, foundDate, tripType := waitForClass(cfg, sabreCfg, in, session, li)
+			found, foundClass, foundDate, tripType, seatsAvailable := waitForClass(cfg, sabreCfg, in, session, li)
 			if !found {
 				restart := postCancelMenu(sabreCfg, session, li)
 				if restart {
@@ -92,7 +92,11 @@ func main() {
 				fmt.Printf("[flight availability] ERROR: %s\n", err)
 			}
 
-			seatHoldCommand := buildSeatHoldCommand(foundClass)
+			seatHoldQty := seatHoldQuantity(seatsAvailable)
+
+			seatHoldCommand := buildSeatHoldCommand(foundClass, seatHoldQty)
+
+			fmt.Printf("Seat hold command : %s (available seats: %d)\n", seatHoldCommand, seatsAvailable)
 
 			if trySeatHold(cfg, sabreCfg, session, in, tripType, seatHoldCommand, foundClass) {
 				held = true
@@ -203,7 +207,7 @@ func banner() string {
 	return `
 ╔══════════════════════════════════════════╗
 ║         SABRE TERMINAL v1.1              ║
-║     Seat hold with selected row          ║
+║     biman multi seats, return way        ║
 ╚══════════════════════════════════════════╝
 `
 }

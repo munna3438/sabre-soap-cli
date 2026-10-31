@@ -82,7 +82,8 @@ gofmt -w .
   - `assets/sabre/get_data_1785580559.json` modified
   - **DONE: Switched booking-class parsing from `unbundledOffers` to `unbundledAlternateDateOffers` per `assets/sabre/biman_result.json`; renamed `Date` → `SearchingDate`; updated input prompts (`monitor.go`, `main.go`, `telegram.go`); searchType already `CALENDAR30` in `callBimanGraphql`. Fixed monitor_test.go call sites ( flightNumber arg, 5-line prompt input) so tests compile/pass.**
   - **DONE: Added date-range filtering (`SearchFrom`/`SearchTo` inputs) — `bookingClassFound` filters `unbundledAlternateDateOffers` offers by `departureDates[0]` within range and matches `bookingClass` against `BookingClasses`; only `AVAILABLE` offers considered. Returns `(foundClass, foundDate)`. `main.go` runs Sabre flight availability command on match date, then seat-hold command. Added date-range test case in `monitor_test.go`.**
-- Next planned step: (fill in when decided — e.g. commit staged work, add error handling, new features)
+  - **DONE: Multi seat hold — added `offer.seatsRemaining.count` to `airSearchResponse`; `bookingClassFound` returns available seat count; new `seatHoldQuantity(available)` holds available-1 when 2<available<8, available-2 when available>=8, else all available; `buildSeatHoldCommand(class, qty)` builds `01<CLASS><QTY>`. `main.go` computes qty from matched offer and prints it. Tests updated/added (`TestSeatHoldQuantity`, multi-seat command cases, prompt input).**
+- Next planned step: commit staged work
 
 ## Completed Work
 - [x] Sabre SOAP session create/close (`sabre/session.go`)
@@ -90,6 +91,7 @@ gofmt -w .
 - [x] Interactive Sabre terminal in CLI (`main.go`)
 - [x] Biman GraphQL flight polling + booking-class monitoring (`monitor.go`)
 - [x] Unit tests (`monitor_test.go`)
+- [x] Multi seat hold based on `offer.seatsRemaining.count` (`monitor.go`, `main.go`, `monitor_test.go`)
 
 ## Notes / Gotchas
 - Windows build; Go binary is at `C:\Program Files\Go\bin\go.exe`.

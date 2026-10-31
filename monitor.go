@@ -46,6 +46,9 @@ type airSearchResponse struct {
 					ItineraryPart  []struct {
 						BookingClass string `json:"bookingClass"`
 					} `json:"itineraryPart"`
+					SeatsRemaining struct {
+						Count int `json:"count"`
+					} `json:"seatsRemaining"`
 				} `json:"unbundledAlternateDateOffers"`
 			} `json:"originalResponse"`
 		} `json:"bookingAirSearch"`
@@ -235,13 +238,13 @@ func parseRange(from, to string) (time.Time, time.Time, bool) {
 	return f, t, true
 }
 
-func (in *BookingInput) bookingClassFound(resp *airSearchResponse) (string, string, string) {
+func (in *BookingInput) bookingClassFound(resp *airSearchResponse) (string, string, string, int) {
 	if resp == nil {
-		return "", "", ""
+		return "", "", "", 0
 	}
 	offers := resp.Data.BookingAirSearch.OriginalResponse.UnbundledAlternateDateOffers
 	if len(offers) == 0 {
-		return "", "", ""
+		return "", "", "", 0
 	}
 
 	fromDate, toDate, useRange := parseRange(in.SearchFrom, in.SearchTo)
@@ -287,14 +290,15 @@ func (in *BookingInput) bookingClassFound(resp *airSearchResponse) (string, stri
 			}
 
 			bc := offer.ItineraryPart[0].BookingClass
+			seats := offer.SeatsRemaining.Count
 			for _, want := range classes {
 				if bc == want {
-					return want, ds, kind
+					return want, ds, kind, seats
 				}
 			}
 		}
 	}
-	return "", "", ""
+	return "", "", "", 0
 }
 
 func buildFlightCommand(from, to, date string) string {
@@ -305,8 +309,22 @@ func buildFlightCommand(from, to, date string) string {
 	return strings.ToUpper(fmt.Sprintf("1%s%s%s¥BG", dayMonth, from, to))
 }
 
-func buildSeatHoldCommand(bookingClass string) string {
-	return "01" + strings.ToUpper(bookingClass) + "1"
+// seatHoldQuantity decides how many seats to hold based on available seats:
+//   - available > 2 and < 8: hold available - 1
+//   - available >= 8:         hold available - 2
+//   - otherwise:              hold all available
+func seatHoldQuantity(available int) int {
+	if available > 2 && available < 8 {
+		return available - 1
+	}
+	if available >= 8 {
+		return available - 2
+	}
+	return available
+}
+
+func buildSeatHoldCommand(bookingClass string, qty int) string {
+	return "0" + fmt.Sprintf("%d", qty) + strings.ToUpper(bookingClass) + "1"
 }
 
 var seatHoldStatusRe = regexp.MustCompile(`\b(SS|UC)\d`)
@@ -382,7 +400,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 	return false
 }
 
-func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, li *lineInput) (bool, string, string, string) {
+func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, li *lineInput) (bool, string, string, string, int) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -400,6 +418,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 	foundClass := ""
 	foundDate := ""
 	tripType := ""
+	seatsAvailable := 0
 	for {
 		if ctx.Err() != nil {
 			fmt.Println("\rMonitoring stopped by user.")
@@ -411,12 +430,13 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 			fmt.Printf("\r[Request #%d] ERROR: %s", count, err)
 			continue
 		}
-		fc, fd, ft := in.bookingClassFound(resp)
+		fc, fd, ft, seats := in.bookingClassFound(resp)
 		if fc != "" {
 			found = true
 			foundClass = fc
 			foundDate = fd
 			tripType = ft
+			seatsAvailable = seats
 			break
 		}
 		fmt.Printf("\r[Request #%d] re-checking...", count)
@@ -425,7 +445,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 
 	cancel()
 	wg.Wait()
-	return found, foundClass, foundDate, tripType
+	return found, foundClass, foundDate, tripType, seatsAvailable
 }
 
 func listenForCancel(ctx context.Context, cancel context.CancelFunc, li *lineInput) {
