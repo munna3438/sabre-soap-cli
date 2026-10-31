@@ -1,4 +1,4 @@
 .env
-*.exe
+/tmp
 PLAN.md
 /assets

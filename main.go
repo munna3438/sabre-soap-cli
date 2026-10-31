@@ -206,7 +206,7 @@ func printCommandResult(command string, result *sabre.CommandResult) {
 func banner() string {
 	return `
 ╔══════════════════════════════════════════╗
-║         SABRE TERMINAL v1.1              ║
+║         Biman TERMINAL v1.1              ║
 ║     biman multi seats, return way        ║
 ╚══════════════════════════════════════════╝
 `
