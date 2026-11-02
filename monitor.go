@@ -144,7 +144,7 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 				"cabinClass":   "Economy",
 				"awardBooking": false,
 				"promoCodes":   []string{""},
-				"searchType":   "CALENDAR30",
+				"searchType":   "BRANDED",
 				"itineraryParts": []interface{}{
 					map[string]interface{}{
 						"from": map[string]interface{}{"useNearbyLocations": false, "code": in.From},
@@ -208,7 +208,6 @@ func (in *BookingInput) findMatch(resp *airSearchResponse, rows map[string]int) 
 
 	groups := [][][]bimanOffer{
 		resp.Data.BookingAirSearch.OriginalResponse.UnbundledOffers,
-		resp.Data.BookingAirSearch.OriginalResponse.UnbundledAlternateDateOffers,
 	}
 
 	for _, offers := range groups {
@@ -340,12 +339,12 @@ func buildSeatHoldCommand(bookingClass string, row, seats int) string {
 		seats = 9
 	}
 
-	holdSeat:= seats
-	if seats > 2 && seats <8{
-		holdSeat = seats - 1 
-	}else if seats >=8{
-		holdSeat = seats -2
-	}else{
+	holdSeat := seats
+	if seats > 2 && seats < 8 {
+		holdSeat = seats - 1
+	} else if seats >= 8 {
+		holdSeat = seats - 2
+	} else {
 		holdSeat = seats
 	}
 
