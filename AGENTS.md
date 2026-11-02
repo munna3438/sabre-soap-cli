@@ -11,7 +11,7 @@
 
 ## Project Overview
 A Go (1.21) CLI tool that:
-1. Prompts for flight details (From, To, Booking class, Date).
+1. Prompts for flight details (From, To, Booking class(es), Flight number(s), Date).
 2. Creates a Sabre SOAP session.
 3. Polls a Biman Airlines GraphQL API (`bookingAirSearch`) in the background, watching for a specific booking class to become available.
 4. While polling, periodically sends a Sabre flight command via the session (keep-alive so the session doesn't expire).
@@ -37,11 +37,12 @@ Branches: work is done on `dev_munna` (current).
 
 ## Key Code Details
 - Flight command format: `1<DDMON><FROM><TO>¥BG` (e.g. `120AUGDACBKK¥BG`). Note `¥` is used in place of `\`.
-- Seat hold command: `01<CLASS>1` (e.g. `01B1`). Built from the **actually-found** class (monitoring can watch multiple classes).
+- Flight-number input: comma-separated (e.g. `347,7210`) in `BookingInput.FlightNumbers`. Before each monitoring round, `fetchAvailabilityRows` sends the Sabre availability command and `parseAvailabilityRows` maps flight number -> row from the screen (e.g. `347->1, 7210->7`). Only requested flight numbers are kept when provided.
+- Seat hold command: `0<seats><CLASS><row>` (e.g. `03H7` = 3 seats, class H, availability row 7; seats capped 1..9). Built from the **actually-found** class + flight number + `seatsRemaining.count`, using the row from the availability screen.
 - Seat-hold retry: `trySeatHold` (monitor.go) sends the seat-hold command up to 2 times. `seatHoldStatus` parses the Sabre screen text: `\b(SS|UC)\d` → `SS` = seat held (success), `UC` = not held. On `UC`/error/unknown it retries with no delay; after 2 failed attempts, main.go sends the Sabre `I` command (clear screen) then loops back into `waitForClass` (re-searches Biman Bangladesh) and keeps cycling until `SS` or user quits (`q`).
 - Telegram: `sendTelegramMessage` (telegram.go) POSTs to `https://api.telegram.org/bot<token>/sendMessage` (parse_mode HTML). `buildSeatHoldMessages` builds two multi-line messages (`From:`/`To:`/`Date:`/`Booking Class:`) from `BookingInput` + found class: success = blocked class only, UC = all input classes comma-joined (`B,C,D`). On `SS` the success message is sent once; on the **first** `UC` of a seat-hold round the UC message is sent once (not per retry). Sending is skipped when `SABRE_TELEGRAM_BOT_TOKEN`/`SABRE_TELEGRAM_CHAT_ID` are empty.
 - Polling: `fetchAirSearch` calls `callBimanGraphql` (live GraphQL POST to `BIMAN_GRAPHQL_URL`; the file-read from `assets/sabre/get_data_1785580559.json` is commented out). Poll loop has NO sleep and NO per-check output (removed for speed); on class match it breaks immediately and runs the seat-hold. The GraphQL query cannot be shrunk by selecting subfields of `originalResponse` (schema returns 400 — it is opaque/scalar).
-- Booking-class detection parses `data.bookingAirSearch.originalResponse.unbundledOffers[0][].itineraryPart[0].bookingClass`.
+- Match detection (`findMatch`) scans both `unbundledOffers[0][]` and `unbundledAlternateDateOffers[0][]`: requires `itineraryPart[0].bookingClass` in requested classes, `itineraryPart[0].segments[0].flight.flightNumber` in requested flight numbers, and a known availability row. Returns class + flight number + `seatsRemaining.count` + row.
 - Keep-alive interval: `SABRE_POLL_MINUTES` (default 10). Retry re-session: handled automatically when session expired.
 - Session expiry auto-renew: `isSessionInvalid()` in `sabre/command.go` checks for session/token keywords, then recreates the session and re-sends the command; sets `SessionRetried = true`.
 - Stdin handling: channel-based `lineInput` (owning goroutine scans `os.Stdin`); `promptBookingInput` / `interactiveTerminal` / `postCancelMenu` / `listenForCancel` all read via `readLine()`. Typing `q` while monitoring cancels polling; `postCancelMenu` offers `[1] New search` (new session), `[2] Sabre terminal` (reuses open session), `[3] Exit`.
@@ -72,8 +73,9 @@ gofmt -w .
 
 ## Current Work State
 - Branch: `dev_munna`
-- Last commit: `fb7986d` "sabre soap api connection and terminal command exicution with session code"
+- Last commit: `b5ac4a2` "change name"
 - In progress (uncommitted working-tree changes):
+  - Added flight-number input + Sabre availability row mapping (`flight->row`); Biman match now requires class + flight number + known row; seat hold built as `0<seats><class><row>` using `seatsRemaining.count` (`monitor.go`, `main.go`, `monitor_test.go`)
   - Added `IS_LIVE` env toggle for live ClientId/ClientSecret in SessionCreateRQ (`config.go`, `sabre/config.go`, `sabre/session.go`, `main.go`, `sabre/command.go`)
   - Added `q`-to-stop monitoring + post-cancel menu `[1] New search / [2] Sabre terminal / [3] Exit` (`main.go`, `monitor.go`, `monitor_test.go`)
   - Added comma-separated multi-class monitoring (`B,C,D`); seat hold uses the actually-found class (`monitor.go`, `main.go`, `monitor_test.go`)

@@ -10,6 +10,8 @@ import (
 
 	// "os"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,21 +24,48 @@ type BookingInput struct {
 	To             string
 	BookingClass   string
 	BookingClasses []string
+	FlightNumbers  []string
 	Date           string
+}
+
+type bimanFlight struct {
+	FlightNumber int `json:"flightNumber"`
+}
+
+type bimanSegment struct {
+	Flight bimanFlight `json:"flight"`
+}
+
+type bimanItineraryPart struct {
+	BookingClass string         `json:"bookingClass"`
+	Segments     []bimanSegment `json:"segments"`
+}
+
+type bimanSeats struct {
+	Count int `json:"count"`
+}
+
+type bimanOffer struct {
+	SeatsRemaining bimanSeats           `json:"seatsRemaining"`
+	ItineraryPart  []bimanItineraryPart `json:"itineraryPart"`
 }
 
 type airSearchResponse struct {
 	Data struct {
 		BookingAirSearch struct {
 			OriginalResponse struct {
-				UnbundledOffers [][]struct {
-					ItineraryPart []struct {
-						BookingClass string `json:"bookingClass"`
-					} `json:"itineraryPart"`
-				} `json:"unbundledOffers"`
+				UnbundledOffers              [][]bimanOffer `json:"unbundledOffers"`
+				UnbundledAlternateDateOffers [][]bimanOffer `json:"unbundledAlternateDateOffers"`
 			} `json:"originalResponse"`
 		} `json:"bookingAirSearch"`
 	} `json:"data"`
+}
+
+type bimanMatch struct {
+	Class        string
+	FlightNumber string
+	Seats        int
+	Row          int
 }
 
 type lineInput struct {
@@ -67,15 +96,19 @@ func promptBookingInput(li *lineInput) *BookingInput {
 	in.From = promptValue(li, "1. From (e.g. DAC)", "")
 	in.To = promptValue(li, "2. To (e.g. BKK)", "")
 	in.BookingClass = promptValue(li, "3. Booking class (e.g. B or B,C,D)", "")
-	in.Date = promptValue(li, "4. Date (YYYY-MM-DD)", "")
+	in.FlightNumbers = splitList(promptValue(li, "4. Flight number(s) (e.g. 347 or 347,7210)", ""))
+	in.Date = promptValue(li, "5. Date (YYYY-MM-DD)", "")
 	in.From = strings.ToUpper(in.From)
 	in.To = strings.ToUpper(in.To)
 	in.BookingClass = strings.ToUpper(in.BookingClass)
-	in.BookingClasses = splitClasses(in.BookingClass)
+	in.BookingClasses = splitList(in.BookingClass)
+	for i, fn := range in.FlightNumbers {
+		in.FlightNumbers[i] = normalizeFlightNumber(fn)
+	}
 	return in
 }
 
-func splitClasses(s string) []string {
+func splitList(s string) []string {
 	var out []string
 	for _, c := range strings.Split(s, ",") {
 		c = strings.TrimSpace(c)
@@ -111,7 +144,7 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 				"cabinClass":   "Economy",
 				"awardBooking": false,
 				"promoCodes":   []string{""},
-				"searchType":   "BRANDED",
+				"searchType":   "CALENDAR30",
 				"itineraryParts": []interface{}{
 					map[string]interface{}{
 						"from": map[string]interface{}{"useNearbyLocations": false, "code": in.From},
@@ -168,25 +201,127 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 	return &result, nil
 }
 
-func (in *BookingInput) bookingClassFound(resp *airSearchResponse) string {
+func (in *BookingInput) findMatch(resp *airSearchResponse, rows map[string]int) (*bimanMatch, bool) {
 	if resp == nil {
-		return ""
+		return nil, false
 	}
-	offers := resp.Data.BookingAirSearch.OriginalResponse.UnbundledOffers
-	if len(offers) == 0 || len(offers[0]) == 0 {
-		return ""
+
+	groups := [][][]bimanOffer{
+		resp.Data.BookingAirSearch.OriginalResponse.UnbundledOffers,
+		resp.Data.BookingAirSearch.OriginalResponse.UnbundledAlternateDateOffers,
 	}
-	for _, offer := range offers[0] {
-		if len(offer.ItineraryPart) > 0 {
-			bc := offer.ItineraryPart[0].BookingClass
-			for _, want := range in.BookingClasses {
-				if bc == want {
-					return want
-				}
+
+	for _, offers := range groups {
+		if len(offers) == 0 {
+			continue
+		}
+		for _, offer := range offers[0] {
+			if len(offer.ItineraryPart) == 0 {
+				continue
 			}
+			part := offer.ItineraryPart[0]
+			if len(part.Segments) == 0 {
+				continue
+			}
+
+			flightNumber := normalizeFlightNumber(strconv.Itoa(part.Segments[0].Flight.FlightNumber))
+			if !containsString(in.BookingClasses, part.BookingClass) {
+				continue
+			}
+			if !flightWanted(in.FlightNumbers, flightNumber) {
+				continue
+			}
+			row, ok := rows[flightNumber]
+			if !ok {
+				continue
+			}
+
+			return &bimanMatch{
+				Class:        part.BookingClass,
+				FlightNumber: flightNumber,
+				Seats:        offer.SeatsRemaining.Count,
+				Row:          row,
+			}, true
 		}
 	}
-	return ""
+	return nil, false
+}
+
+func flightWanted(wanted []string, flightNumber string) bool {
+	if len(wanted) == 0 {
+		return true
+	}
+	return containsString(wanted, flightNumber)
+}
+
+func containsString(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+var availabilityRowRe = regexp.MustCompile(`(?m)^\s*(\d{1,3})\s*([A-Z0-9]{2}(?:/[A-Z0-9]{2})?)\s+(\d+)\b`)
+
+func parseAvailabilityRows(screen string) map[string]int {
+	rows := map[string]int{}
+	for _, m := range availabilityRowRe.FindAllStringSubmatch(screen, -1) {
+		row, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		flightNumber := normalizeFlightNumber(m[3])
+		if _, exists := rows[flightNumber]; !exists {
+			rows[flightNumber] = row
+		}
+	}
+	return rows
+}
+
+func fetchAvailabilityRows(sabreCfg *sabre.Config, session *sabre.SessionResult, flightCommand string, wanted []string) (map[string]int, error) {
+	result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, flightCommand)
+	if err != nil {
+		return nil, err
+	}
+
+	all := parseAvailabilityRows(result.Response)
+	if len(wanted) == 0 {
+		return all, nil
+	}
+
+	rows := map[string]int{}
+	for _, flightNumber := range wanted {
+		key := normalizeFlightNumber(flightNumber)
+		if row, ok := all[key]; ok {
+			rows[key] = row
+		}
+	}
+	return rows, nil
+}
+
+func normalizeFlightNumber(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimLeft(value, "0")
+	if value == "" {
+		return "0"
+	}
+	return value
+}
+
+func formatFlightRows(rows map[string]int) string {
+	keys := make([]string, 0, len(rows))
+	for key := range rows {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s->%d", key, rows[key]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func buildFlightCommand(from, to, date string) string {
@@ -197,8 +332,24 @@ func buildFlightCommand(from, to, date string) string {
 	return strings.ToUpper(fmt.Sprintf("1%s%s%s¥BG", dayMonth, from, to))
 }
 
-func buildSeatHoldCommand(bookingClass string) string {
-	return "01" + strings.ToUpper(bookingClass) + "1"
+func buildSeatHoldCommand(bookingClass string, row, seats int) string {
+	if seats < 1 {
+		seats = 1
+	}
+	if seats > 9 {
+		seats = 9
+	}
+
+	holdSeat:= seats
+	if seats > 2 && seats <8{
+		holdSeat = seats - 1 
+	}else if seats >=8{
+		holdSeat = seats -2
+	}else{
+		holdSeat = seats
+	}
+
+	return fmt.Sprintf("0%d%s%d", holdSeat, strings.ToUpper(bookingClass), row)
 }
 
 var seatHoldStatusRe = regexp.MustCompile(`\b(SS|UC)\d`)
@@ -244,7 +395,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 	return false
 }
 
-func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, li *lineInput) (bool, string) {
+func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session *sabre.SessionResult, flightCommand string, rows map[string]int, li *lineInput) (*bimanMatch, bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -262,8 +413,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 	fmt.Println("(Type 'q' to stop monitoring)")
 
 	count := 0
-	found := false
-	foundClass := ""
+	var match *bimanMatch
 	for {
 		if ctx.Err() != nil {
 			fmt.Println("\rMonitoring stopped by user.")
@@ -275,9 +425,8 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 			fmt.Printf("\r[Request #%d] ERROR: %s", count, err)
 			continue
 		}
-		if fc := in.bookingClassFound(resp); fc != "" {
-			found = true
-			foundClass = fc
+		if m, ok := in.findMatch(resp, rows); ok {
+			match = m
 			break
 		}
 		fmt.Printf("\r[Request #%d] re-checking...", count)
@@ -286,7 +435,7 @@ func waitForClass(cfg *Config, sabreCfg *sabre.Config, in *BookingInput, session
 
 	cancel()
 	wg.Wait()
-	return found, foundClass
+	return match, match != nil
 }
 
 func listenForCancel(ctx context.Context, cancel context.CancelFunc, li *lineInput) {
@@ -308,8 +457,6 @@ func listenForCancel(ctx context.Context, cancel context.CancelFunc, li *lineInp
 }
 
 func keepAliveLoop(ctx context.Context, sabreCfg *sabre.Config, session *sabre.SessionResult, flightCommand string, minutes int) {
-	runFlightKeepAlive(sabreCfg, session, flightCommand)
-
 	ticker := time.NewTicker(time.Duration(minutes) * time.Minute)
 	defer ticker.Stop()
 

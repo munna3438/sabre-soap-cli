@@ -50,11 +50,20 @@ func main() {
 		fmt.Printf("Session: %s\n", session.ConversationID)
 		fmt.Println()
 
-		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) in background...\n", in.BookingClass, in.From, in.To, in.Date)
+		fmt.Printf("Monitoring for booking class %s (%s -> %s, %s) flight(s) %v in background...\n", in.BookingClass, in.From, in.To, in.Date, in.FlightNumbers)
 
 		held := false
 		for {
-			found, foundClass := waitForClass(cfg, sabreCfg, in, session, flightCommand, li)
+			rows, err := fetchAvailabilityRows(sabreCfg, session, flightCommand, in.FlightNumbers)
+			if err != nil {
+				fmt.Printf("[availability] ERROR: %s\n", err)
+			} else if len(rows) == 0 {
+				fmt.Println("[availability] No matching flight rows found.")
+			} else {
+				fmt.Printf("Availability rows (flight->row): %s\n", formatFlightRows(rows))
+			}
+
+			match, found := waitForClass(cfg, sabreCfg, in, session, flightCommand, rows, li)
 			if !found {
 				restart := postCancelMenu(sabreCfg, session, li)
 				if restart {
@@ -64,9 +73,10 @@ func main() {
 				os.Exit(0)
 			}
 
-			seatHoldCommand := buildSeatHoldCommand(foundClass)
+			seatHoldCommand := buildSeatHoldCommand(match.Class, match.Row, match.Seats)
+			fmt.Printf("Seat hold command: %s (class %s, flight %s, row %d, seats %d)\n", seatHoldCommand, match.Class, match.FlightNumber, match.Row, match.Seats)
 
-			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, foundClass) {
+			if trySeatHold(cfg, sabreCfg, session, in, seatHoldCommand, match.Class) {
 				held = true
 				break
 			}
@@ -173,10 +183,10 @@ func printCommandResult(command string, result *sabre.CommandResult) {
 
 func banner() string {
 	return `
-╔════════════════════════════╗
-║       Biman site v1.0      ║
-║         single seat        ║
-╚════════════════════════════╝
+╔═══════════════════════════════════╗
+║          Biman site v1.0          ║
+║   Multi seat with flight number   ║
+╚═══════════════════════════════════╝
 `
 }
 
