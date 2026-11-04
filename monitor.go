@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	// "os"
 	"regexp"
@@ -144,7 +146,7 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 				"cabinClass":   "Economy",
 				"awardBooking": false,
 				"promoCodes":   []string{""},
-				"searchType":   "BRANDED",
+				"searchType":   "LOWESTFARE",
 				"itineraryParts": []interface{}{
 					map[string]interface{}{
 						"from": map[string]interface{}{"useNearbyLocations": false, "code": in.From},
@@ -180,23 +182,41 @@ func (in *BookingInput) callBimanGraphql(cfg *Config) (*airSearchResponse, error
 	if err != nil {
 		return nil, fmt.Errorf("biman request failed: %w", err)
 	}
-	defer resp.Body.Close()
-
-	var result airSearchResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("biman response parse: %w", err)
-	}
-
-	// jsonContent, err := os.ReadFile("assets/sabre/get_data_1785580559.json")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("read test JSON: %w", err)
-	// }
+	// defer resp.Body.Close()
 
 	// var result airSearchResponse
-
-	// if err := json.Unmarshal(jsonContent, &result); err != nil {
-	// 	return nil, fmt.Errorf("parse test JSON: %w", err)
+	// if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// 	return nil, fmt.Errorf("biman response parse: %w", err)
 	// }
+	// return &result, nil
+
+	defer resp.Body.Close()
+
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read biman response: %w", err)
+	}
+
+	dir := "assets/sabre"
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("create directory: %w", err)
+	}
+
+	filename := fmt.Sprintf(
+		"biman_%s_%s.json",
+		in.Date,
+		time.Now().Format("20060102_150405.000000000"),
+	)
+	filePath := filepath.Join(dir, filename)
+
+	if err := os.WriteFile(filePath, rawBody, 0644); err != nil {
+		return nil, fmt.Errorf("write JSON file: %w", err)
+	}
+
+	var result airSearchResponse
+	if err := json.Unmarshal(rawBody, &result); err != nil {
+		return nil, fmt.Errorf("biman response parse: %w", err)
+	}
 
 	return &result, nil
 }
@@ -339,7 +359,7 @@ func buildSeatHoldCommand(bookingClass string, row, seats int) string {
 		seats = 9
 	}
 
-	holdSeat := seats
+	holdSeat := 1
 	if seats > 2 && seats < 8 {
 		holdSeat = seats - 1
 	} else if seats >= 8 {
@@ -364,7 +384,7 @@ func seatHoldStatus(response string) string {
 const maxSeatHoldAttempts = 2
 
 func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResult, in *BookingInput, seatHoldCommand, foundClass string) bool {
-	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass)
+	ucMessage, successMessage := buildSeatHoldMessages(in, foundClass, seatHoldCommand)
 	ucNotified := false
 	for attempt := 1; attempt <= maxSeatHoldAttempts; attempt++ {
 		result, err := sabre.SendCommandWithExistingSession(sabreCfg, session, seatHoldCommand)
@@ -374,7 +394,7 @@ func trySeatHold(cfg *Config, sabreCfg *sabre.Config, session *sabre.SessionResu
 		}
 		switch seatHoldStatus(result.Response) {
 		case "SS":
-			fmt.Printf("Seat held successfully (%s)\n", seatHoldCommand)
+			fmt.Printf("%s \n", result.Response)
 			if err := sendTelegramMessage(cfg, successMessage); err != nil {
 				fmt.Printf("[telegram] ERROR: %s\n", err)
 			}
